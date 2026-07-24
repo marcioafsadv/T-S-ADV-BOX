@@ -251,28 +251,6 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Quick Demo Access Badges (Only in login mode) */}
-          {!isRegisterMode && (
-            <div className="bg-[#1a2232]/40 rounded-xl p-4 border border-slate-800 space-y-2">
-              <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Acesso Rápido de Teste:</span>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => fillCredentials('client')}
-                  className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
-                >
-                  Roberto (Cliente)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillCredentials('lawyer')}
-                  className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
-                >
-                  Dr. Carlos (Advogado)
-                </button>
-              </div>
-            </div>
-          )}
 
           <form onSubmit={isRegisterMode ? handleRegister : handleLogin} className="space-y-6">
             {error && (
