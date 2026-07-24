@@ -3,201 +3,425 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Scale,
+  Scale, 
   Calendar, 
-  Clock, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Plus, 
-  FileText, 
-  Search, 
-  LogOut, 
   User, 
-  Tag, 
-  SlidersHorizontal,
-  ChevronRight,
-  TrendingUp,
-  Inbox
+  FileText, 
+  ChevronRight, 
+  LogOut, 
+  CheckCircle2, 
+  Inbox, 
+  Plus, 
+  AlertCircle, 
+  Clock, 
+  Check, 
+  X, 
+  Upload,
+  ExternalLink,
+  ChevronDown
 } from 'lucide-react';
-import { mockDeadlines, mockLawsuits, mockDocuments, Deadline } from '@/lib/mockData';
 import Logo from '@/components/Logo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
+
+interface PrazoFatal {
+  id: string;
+  processo_numero: string;
+  titulo: string;
+  data_fatal: string;
+  prioridade: 'ALTA' | 'MEDIA' | 'BAIXA';
+  status: 'PENDENTE' | 'CONCLUIDO' | 'CANCELADO';
+  responsavel_id: string | null;
+  protocolo_comprovante_url: string | null;
+  created_at?: string;
+}
+
+interface DocumentoRecebido {
+  id: string;
+  cliente_nome: string;
+  documento_tipo: string;
+  arquivo_url: string;
+  tamanho_kb: number;
+  status_validacao: 'PENDENTE' | 'VALIDADO' | 'REJEITADO';
+  processo_vinculado_id: string | null;
+  created_at?: string;
+}
 
 export default function LawyerDashboard() {
   const router = useRouter();
   
-  const [deadlines, setDeadlines] = useState<Deadline[]>(mockDeadlines);
-  const [lawsuitsList, setLawsuitsList] = useState<any[]>(mockLawsuits);
-  const [lawyerName, setLawyerName] = useState('Dr. Carlos Silva');
-  const [lawyerEmail, setLawyerEmail] = useState('carlos.silva@torressilva.com.br');
-  const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  // Estados de Dados
+  const [deadlines, setDeadlines] = useState<PrazoFatal[]>([]);
+  const [documents, setDocuments] = useState<DocumentoRecebido[]>([]);
+  const [lawyers, setLawyers] = useState<any[]>([]);
   
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [description, setDescription] = useState('');
-  const [lawsuitId, setLawsuitId] = useState(mockLawsuits[0].id);
-  const [deadlineDate, setDeadlineDate] = useState('');
-  const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('high');
+  // Estado do Usuário Logado
+  const [lawyerName, setLawyerName] = useState('Dr. Advogado');
+  const [lawyerEmail, setLawyerEmail] = useState('advogado@torressilva.com.br');
+  
+  // Estados de Interface e Modais
+  const [filter, setFilter] = useState<'all' | 'ALTA' | 'MEDIA' | 'BAIXA'>('all');
+  const [loading, setLoading] = useState(true);
+  
+  // Modal de Cadastro de Novo Prazo
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newProcesso, setNewProcesso] = useState('');
+  const [newTitulo, setNewTitulo] = useState('');
+  const [newDataFatal, setNewDataFatal] = useState('');
+  const [newPrioridade, setNewPrioridade] = useState<'ALTA' | 'MEDIA' | 'BAIXA'>('ALTA');
+  const [newResponsavel, setNewResponsavel] = useState('');
 
+  // Modal de Conclusão de Prazo
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [selectedDeadline, setSelectedDeadline] = useState<PrazoFatal | null>(null);
+  const [protocoloNum, setProtocoloNum] = useState('');
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
+
+  // Modal de Validação de Documento
+  const [showValidateModal, setShowValidateModal] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<DocumentoRecebido | null>(null);
+  const [linkedProcessId, setLinkedProcessId] = useState('');
+  const [lawsuitsList, setLawsuitsList] = useState<any[]>([]);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // 1. Carregamento de Dados Iniciais e Subs de Realtime
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    const loadInitialData = async () => {
+      setLoading(true);
+      
+      // Se Supabase não estiver configurado, carregar dados Mocks
+      if (!isSupabaseConfigured) {
+        setDeadlines([
+          {
+            id: 'mock-1',
+            processo_numero: '0012345-67.2024.8.19.0001',
+            titulo: 'Réplica à Contestação apresentada pelo Réu',
+            data_fatal: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24h
+            prioridade: 'ALTA',
+            status: 'PENDENTE',
+            responsavel_id: null,
+            protocolo_comprovante_url: null
+          },
+          {
+            id: 'mock-2',
+            processo_numero: '0038765-43.2023.8.26.0100',
+            titulo: 'Manifestar-se sobre laudo de avaliação pericial',
+            data_fatal: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 dias
+            prioridade: 'MEDIA',
+            status: 'PENDENTE',
+            responsavel_id: null,
+            protocolo_comprovante_url: null
+          },
+          {
+            id: 'mock-3',
+            processo_numero: '0012345-67.2024.8.19.0001',
+            titulo: 'Recolhimento de custas para expedição de mandado',
+            data_fatal: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(), // 8 dias
+            prioridade: 'BAIXA',
+            status: 'PENDENTE',
+            responsavel_id: null,
+            protocolo_comprovante_url: null
+          }
+        ]);
+        setDocuments([
+          {
+            id: 'mock-doc-1',
+            cliente_nome: 'Roberto Albuquerque',
+            documento_tipo: 'Procuracao_Assinada_Roberto.pdf',
+            arquivo_url: '#',
+            tamanho_kb: 425,
+            status_validacao: 'PENDENTE',
+            processo_vinculado_id: null
+          },
+          {
+            id: 'mock-doc-2',
+            cliente_nome: 'Roberto Albuquerque',
+            documento_tipo: 'Comprovante_Residencia.jpg',
+            arquivo_url: '#',
+            tamanho_kb: 1228,
+            status_validacao: 'PENDENTE',
+            processo_vinculado_id: null
+          }
+        ]);
+        setLawyers([{ id: 'mock-l1', full_name: 'Dr. Carlos Silva' }]);
+        setLawsuitsList([{ id: 'mock-lawsuit-1', process_number: '0012345-67.2024.8.19.0001' }]);
+        setLoading(false);
+        return;
+      }
 
-    const fetchLawyerData = async () => {
       try {
+        // Carrega dados de usuário autenticado
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        
-        // Busca o nome real do usuário da tabela public.users
-        const { data: dbUser } = await supabase
+        if (user) {
+          const { data: dbUser } = await supabase
+            .from('users')
+            .select('full_name, email')
+            .eq('id', user.id)
+            .single();
+
+          if (dbUser) {
+            setLawyerName(dbUser.full_name || 'Dr. Advogado');
+            setLawyerEmail(dbUser.email || user.email || '');
+          } else {
+            setLawyerName(user.user_metadata?.full_name || 'Dr. Advogado');
+            setLawyerEmail(user.email || '');
+          }
+        }
+
+        // Buscar Advogados do escritório
+        const { data: dbLawyers } = await supabase
           .from('users')
-          .select('full_name, email')
-          .eq('id', user.id)
-          .single();
+          .select('id, full_name')
+          .eq('role', 'lawyer');
+        if (dbLawyers) setLawyers(dbLawyers);
 
-        if (dbUser) {
-          setLawyerName(dbUser.full_name || 'Dr. Advogado');
-          setLawyerEmail(dbUser.email || user.email || 'advogado@torressilva.com.br');
-        } else {
-          setLawyerName(user.user_metadata?.full_name || 'Dr. Advogado');
-          setLawyerEmail(user.email || 'advogado@torressilva.com.br');
-        }
-
-        // Buscar processos
-        const { data: lawsuitsData } = await supabase
+        // Buscar Processos para vinculação
+        const { data: dbLawsuits } = await supabase
           .from('lawsuits')
-          .select('*');
+          .select('id, process_number');
+        if (dbLawsuits) setLawsuitsList(dbLawsuits);
 
-        if (lawsuitsData && lawsuitsData.length > 0) {
-          const mappedLawsuits = lawsuitsData.map((l: any) => ({
-            id: l.id,
-            processNumber: l.process_number,
-            court: l.court,
-            comarca: l.comarca,
-            lawsuitClass: l.lawsuit_class,
-            status: l.status,
-            clientName: 'Cliente'
-          }));
-          setLawsuitsList(mappedLawsuits);
-          setLawsuitId(mappedLawsuits[0].id);
-        }
+        // Buscar Prazos Fatais
+        const { data: dbPrazos } = await supabase
+          .from('prazos_fatais')
+          .select('*')
+          .order('data_fatal', { ascending: true });
+        if (dbPrazos) setDeadlines(dbPrazos);
 
-        // Buscar prazos com join em lawsuits para obter o process_number
-        const { data: deadlinesData } = await supabase
-          .from('deadlines')
-          .select('*, lawsuits(process_number)')
-          .order('deadline_date', { ascending: true });
+        // Buscar Documentos Recebidos
+        const { data: dbDocs } = await supabase
+          .from('documentos_recebidos')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (dbDocs) setDocuments(dbDocs);
 
-        if (deadlinesData && deadlinesData.length > 0) {
-          setDeadlines(deadlinesData.map((d: any) => {
-            const diffTime = new Date(d.deadline_date).getTime() - new Date().getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            return {
-              id: d.id,
-              lawsuitId: d.lawsuit_id,
-              processNumber: (d.lawsuits as any)?.process_number || '0000000-00.0000.0.00.0000',
-              description: d.description,
-              deadlineDate: d.deadline_date,
-              priority: d.priority as any,
-              status: d.status as any,
-              daysLeft: diffDays > 0 ? diffDays : 0
-            };
-          }));
-        }
       } catch (err) {
-        console.error('Erro ao carregar dados do Supabase para advogado:', err);
+        console.error('Erro ao carregar dados do Supabase:', err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchLawyerData();
+    loadInitialData();
+
+    // Habilitar escutas em tempo real (Supabase Realtime)
+    if (isSupabaseConfigured) {
+      const prazosChannel = supabase
+        .channel('prazos_realtime_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'prazos_fatais' },
+          (payload: any) => {
+            if (payload.eventType === 'INSERT') {
+              setDeadlines(prev => [payload.new as PrazoFatal, ...prev].sort((a, b) => new Date(a.data_fatal).getTime() - new Date(b.data_fatal).getTime()));
+            } else if (payload.eventType === 'UPDATE') {
+              setDeadlines(prev => prev.map(p => p.id === payload.new.id ? (payload.new as PrazoFatal) : p));
+            } else if (payload.eventType === 'DELETE') {
+              setDeadlines(prev => prev.filter(p => p.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+
+      const docsChannel = supabase
+        .channel('docs_realtime_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'documentos_recebidos' },
+          (payload: any) => {
+            if (payload.eventType === 'INSERT') {
+              setDocuments(prev => [payload.new as DocumentoRecebido, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setDocuments(prev => prev.map(d => d.id === payload.new.id ? (payload.new as DocumentoRecebido) : d));
+            } else if (payload.eventType === 'DELETE') {
+              setDocuments(prev => prev.filter(d => d.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(prazosChannel);
+        supabase.removeChannel(docsChannel);
+      };
+    }
   }, []);
 
-  const handleCompleteDeadline = async (id: string) => {
+  // 2. Ações de Prazos Fatais
+  const handleCreateDeadline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProcesso || !newTitulo || !newDataFatal) return;
+
+    const dataNew = {
+      processo_numero: newProcesso,
+      titulo: newTitulo,
+      data_fatal: new Date(newDataFatal).toISOString(),
+      prioridade: newPrioridade,
+      status: 'PENDENTE' as const,
+      responsavel_id: newResponsavel || null,
+      protocolo_comprovante_url: null
+    };
+
     if (isSupabaseConfigured) {
       try {
         const { error } = await supabase
-          .from('deadlines')
-          .update({ status: 'Concluído', completed_at: new Date().toISOString() })
-          .eq('id', id);
-
+          .from('prazos_fatais')
+          .insert(dataNew);
         if (error) throw error;
-      } catch (err) {
-        console.error('Erro ao atualizar status no Supabase:', err);
+      } catch (err: any) {
+        alert('Erro ao cadastrar prazo: ' + err.message);
       }
+    } else {
+      // Simulação Offline
+      const mockNew: PrazoFatal = {
+        id: `prazo-mock-${Date.now()}`,
+        ...dataNew
+      };
+      setDeadlines(prev => [mockNew, ...prev].sort((a, b) => new Date(a.data_fatal).getTime() - new Date(b.data_fatal).getTime()));
     }
 
-    setDeadlines(prev => 
-      prev.map(d => d.id === id ? { ...d, status: 'Concluído' } : d)
-    );
+    // Reset formulário
+    setNewProcesso('');
+    setNewTitulo('');
+    setNewDataFatal('');
+    setNewPrioridade('ALTA');
+    setNewResponsavel('');
+    setShowAddModal(false);
   };
 
-  const handleAddDeadline = async (e: React.FormEvent) => {
+  const handleCompleteDeadline = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !deadlineDate) return;
+    if (!selectedDeadline) return;
 
-    const selectedLawsuit = lawsuitsList.find(l => l.id === lawsuitId);
-    const diffTime = new Date(deadlineDate).getTime() - new Date().getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    setIsCompleting(true);
+
+    let comprovanteUrl = null;
 
     if (isSupabaseConfigured) {
       try {
-        const { data, error } = await supabase
-          .from('deadlines')
-          .insert({
-            lawsuit_id: lawsuitId,
-            description,
-            deadline_date: deadlineDate,
-            priority,
-            status: 'Pendente'
+        // Se houver arquivo selecionado, fazer upload para o storage público
+        if (comprovanteFile) {
+          const fileExt = comprovanteFile.name.split('.').pop();
+          const fileName = `${selectedDeadline.id}_${Date.now()}.${fileExt}`;
+          const filePath = `comprovantes/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('process-documents')
+            .upload(filePath, comprovanteFile);
+
+          if (uploadError) throw uploadError;
+
+          const { data } = supabase.storage
+            .from('process-documents')
+            .getPublicUrl(filePath);
+          comprovanteUrl = data.publicUrl;
+        }
+
+        // Atualizar status no Supabase
+        const { error } = await supabase
+          .from('prazos_fatais')
+          .update({
+            status: 'CONCLUIDO',
+            protocolo_comprovante_url: comprovanteUrl || protocoloNum || 'Finalizado'
           })
-          .select()
-          .single();
+          .eq('id', selectedDeadline.id);
 
         if (error) throw error;
-
-        const newDeadline: Deadline = {
-          id: data.id,
-          lawsuitId,
-          processNumber: selectedLawsuit?.processNumber || '0000000-00.0000.0.00.0000',
-          description,
-          deadlineDate,
-          priority,
-          status: 'Pendente',
-          daysLeft: diffDays > 0 ? diffDays : 0,
-        };
-
-        setDeadlines(prev => [newDeadline, ...prev]);
-      } catch (err) {
-        console.error('Erro ao inserir prazo no Supabase:', err);
+      } catch (err: any) {
+        alert('Erro ao concluir prazo: ' + err.message);
+      } finally {
+        setIsCompleting(false);
+        setShowCompleteModal(false);
+        setSelectedDeadline(null);
+        setProtocoloNum('');
+        setComprovanteFile(null);
       }
     } else {
-      const newDeadline: Deadline = {
-        id: `prazo-${Date.now()}`,
-        lawsuitId,
-        processNumber: selectedLawsuit?.processNumber || '0000000-00.0000.0.00.0000',
-        description,
-        deadlineDate,
-        priority,
-        status: 'Pendente',
-        daysLeft: diffDays > 0 ? diffDays : 0,
-      };
-
-      setDeadlines(prev => [newDeadline, ...prev]);
+      // Mock Offline
+      setDeadlines(prev => 
+        prev.map(p => p.id === selectedDeadline.id 
+          ? { ...p, status: 'CONCLUIDO', protocolo_comprovante_url: protocoloNum || 'Finalizado simulado' } 
+          : p
+        )
+      );
+      setIsCompleting(false);
+      setShowCompleteModal(false);
+      setSelectedDeadline(null);
+      setProtocoloNum('');
+      setComprovanteFile(null);
     }
-
-    setDescription('');
-    setDeadlineDate('');
-    setShowAddForm(false);
   };
 
-  // Filter deadlines list
+  // 3. Ações de Documentos Recebidos
+  const handleValidateDoc = async (action: 'VALIDADO' | 'REJEITADO') => {
+    if (!selectedDoc) return;
+
+    setIsValidating(true);
+
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await supabase
+          .from('documentos_recebidos')
+          .update({
+            status_validacao: action,
+            processo_vinculado_id: action === 'VALIDADO' ? (linkedProcessId || null) : null
+          })
+          .eq('id', selectedDoc.id);
+
+        if (error) throw error;
+      } catch (err: any) {
+        alert('Erro ao validar documento: ' + err.message);
+      } finally {
+        setIsValidating(false);
+        setShowValidateModal(false);
+        setSelectedDoc(null);
+        setLinkedProcessId('');
+      }
+    } else {
+      // Mock Offline
+      setDocuments(prev => 
+        prev.map(d => d.id === selectedDoc.id 
+          ? { ...d, status_validacao: action, processo_vinculado_id: action === 'VALIDADO' ? linkedProcessId : null } 
+          : d
+        )
+      );
+      setIsValidating(false);
+      setShowValidateModal(false);
+      setSelectedDoc(null);
+      setLinkedProcessId('');
+    }
+  };
+
+  // 4. Cálculos da Interface e Contagem Regressiva
+  const calculateDaysLeft = (targetDate: string) => {
+    const diffTime = new Date(targetDate).getTime() - Date.now();
+    const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
+    
+    if (diffHours <= 0) return 'Expirado';
+    if (diffHours <= 24) return `Restam ${diffHours}h`;
+    
+    const diffDays = Math.ceil(diffHours / 24);
+    return `Restam ${diffDays} dias`;
+  };
+
+  // Filtragem
   const filteredDeadlines = deadlines.filter(d => {
     if (filter === 'all') return true;
-    return d.priority === filter;
+    return d.prioridade === filter;
   });
 
-  // Calculate metrics
-  const activeDeadlines = deadlines.filter(d => d.status === 'Pendente');
-  const highPriorityCount = activeDeadlines.filter(d => d.priority === 'high').length;
-  const completedCount = deadlines.filter(d => d.status === 'Concluído').length;
+  // KPIs em Tempo Real
+  const activeDeadlinesCount = deadlines.filter(d => d.status === 'PENDENTE').length;
+  
+  const highPriorityCriticalCount = deadlines.filter(
+    d => d.status === 'PENDENTE' && d.prioridade === 'ALTA'
+  ).length;
+
+  const currentMonthCompletedCount = deadlines.filter(d => {
+    if (d.status !== 'CONCLUIDO') return false;
+    // Opcional: checagem de mês corrente simplificada
+    return true; 
+  }).length;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#070c14] text-slate-800 dark:text-slate-100 font-sans flex">
@@ -213,7 +437,7 @@ export default function LawyerDashboard() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1.5">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider px-3 block mb-2">Principal</span>
+          <span className="text-[10px] uppercase font-bold text-slate-550 tracking-wider px-3 block mb-2">Principal</span>
           <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm bg-slate-800/50 text-[#b8975a] font-semibold border-l-2 border-[#b8975a]">
             <Calendar className="h-4 w-4" />
             <span>Prazos & Audiências</span>
@@ -234,8 +458,8 @@ export default function LawyerDashboard() {
 
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center gap-3 mb-3 px-2">
-            <div className="h-9 w-9 rounded-full bg-[#b8975a] text-[#111111] flex items-center justify-center font-bold uppercase">
-              {lawyerName.includes('Dr.') ? lawyerName.replace('Dr. ', '').split(' ').slice(0, 2).map(n => n[0]).join('') : lawyerName.split(' ').slice(0, 2).map(n => n[0]).join('')}
+            <div className="h-9 w-9 rounded-full bg-[#b8975a] text-[#111111] flex items-center justify-center font-bold uppercase shrink-0">
+              {lawyerName.split(' ').map(n => n[0]).join('').substring(0, 2)}
             </div>
             <div className="min-w-0">
               <span className="text-xs font-semibold text-white block truncate">{lawyerName}</span>
@@ -262,16 +486,15 @@ export default function LawyerDashboard() {
             <span className="text-base font-serif font-bold text-slate-900 dark:text-white">TORRES & SILVA</span>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm">
+          <div className="hidden lg:flex items-center gap-2 text-slate-550 dark:text-slate-400 text-sm">
             <span>Escritório Central</span>
             <ChevronRight className="h-4 w-4" />
             <span className="text-slate-900 dark:text-white font-medium">Controle Operacional de Prazos</span>
           </div>
 
-          {/* Quick exit for mobile */}
           <button
             onClick={() => router.push('/')}
-            className="lg:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+            className="lg:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-850 rounded-lg transition-all cursor-pointer"
           >
             <LogOut className="h-4 w-4" />
           </button>
@@ -293,10 +516,10 @@ export default function LawyerDashboard() {
                   {isSupabaseConfigured ? 'Supabase Ativo' : 'Modo Demo (Mocks)'}
                 </span>
               </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400">Monitore os prazos fatais, audiências e responda à documentação dos clientes.</p>
+              <p className="text-sm text-slate-550 dark:text-slate-400">Monitore os prazos fatais, audiências e responda à documentação dos clientes.</p>
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => setShowAddModal(true)}
               className="flex items-center justify-center gap-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer"
             >
               <Plus className="h-4 w-4" />
@@ -304,192 +527,115 @@ export default function LawyerDashboard() {
             </button>
           </div>
 
-          {/* Metrics Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {/* Metric Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-xs text-slate-450 dark:text-slate-400 font-semibold uppercase tracking-wider block">Prazos Ativos</span>
-                <span className="text-2xl font-bold text-slate-900 dark:text-white">{activeDeadlines.length}</span>
+              <div>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Prazos Ativos</span>
+                <span className="block text-3xl font-bold text-slate-900 dark:text-white mt-1">
+                  {loading ? '...' : activeDeadlinesCount}
+                </span>
               </div>
-              <div className="h-10 w-10 rounded-lg bg-[#b8975a]/10 flex items-center justify-center text-[#b8975a]">
-                <Clock className="h-5 w-5" />
+              <div className="p-3 bg-amber-500/10 rounded-xl text-amber-500">
+                <Clock className="h-6 w-6" />
               </div>
             </div>
 
             <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-xs text-slate-450 dark:text-slate-400 font-semibold uppercase tracking-wider block">Alerta Crítico (Alta)</span>
-                <span className="text-2xl font-bold text-red-500">{highPriorityCount}</span>
+              <div>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Alerta Crítico (Alta)</span>
+                <span className="block text-3xl font-bold text-red-500 mt-1">
+                  {loading ? '...' : highPriorityCriticalCount}
+                </span>
               </div>
-              <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center text-red-500">
-                <AlertTriangle className="h-5 w-5" />
+              <div className="p-3 bg-red-500/10 rounded-xl text-red-500">
+                <AlertCircle className="h-6 w-6" />
               </div>
             </div>
 
             <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-xs text-slate-450 dark:text-slate-400 font-semibold uppercase tracking-wider block">Prazos Concluídos</span>
-                <span className="text-2xl font-bold text-emerald-500">{completedCount}</span>
+              <div>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Prazos Concluídos</span>
+                <span className="block text-3xl font-bold text-emerald-500 mt-1">
+                  {loading ? '...' : currentMonthCompletedCount}
+                </span>
               </div>
-              <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                <CheckCircle2 className="h-5 w-5" />
+              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500">
+                <CheckCircle2 className="h-6 w-6" />
               </div>
             </div>
           </div>
 
-          {/* Form Modal (conditional) */}
-          {showAddForm && (
-            <div className="bg-white dark:bg-[#1a1a1a] border border-[#b8975a]/30 rounded-xl p-6 shadow-xl space-y-4">
-              <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800">
-                <h3 className="text-md font-serif font-bold text-slate-900 dark:text-white">Criar Novo Prazo Processual</h3>
-                <button onClick={() => setShowAddForm(false)} className="text-slate-400 hover:text-slate-250 text-sm">Cancelar</button>
-              </div>
-              <form onSubmit={handleAddDeadline} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div className="md:col-span-2 space-y-1.5">
-                  <label className="text-xs text-slate-450 font-medium">Descrição da Tarefa</label>
-                  <input
-                    type="text"
-                    required
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Ex: Apresentar contrarrazões de apelação"
-                    className="w-full text-sm px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800 text-white placeholder-slate-550 focus:border-[#b8975a] outline-none"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-450 font-medium">Vincular ao Processo</label>
-                  <select
-                    value={lawsuitId}
-                    onChange={(e) => setLawsuitId(e.target.value)}
-                    className="w-full text-sm px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800 text-white focus:border-[#b8975a] outline-none"
-                  >
-                    {mockLawsuits.map(l => (
-                      <option key={l.id} value={l.id}>{l.processNumber} ({l.clientName})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-450 font-medium">Prioridade</label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as any)}
-                    className="w-full text-sm px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800 text-white focus:border-[#b8975a] outline-none"
-                  >
-                    <option value="high">Alta (Urgente)</option>
-                    <option value="medium">Média</option>
-                    <option value="low">Baixa</option>
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-slate-450 font-medium">Data Fatal</label>
-                  <input
-                    type="date"
-                    required
-                    value={deadlineDate}
-                    onChange={(e) => setDeadlineDate(e.target.value)}
-                    className="w-full text-sm px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800 text-white focus:border-[#b8975a] outline-none"
-                  />
-                </div>
-                <div className="md:col-span-4 flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-[#b8975a] text-[#111111] hover:bg-[#e2c690] font-bold rounded-lg text-xs transition-all cursor-pointer"
-                  >
-                    Adicionar Prazo
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Grid Layout: Deadlines list & Pending Client Documents */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
-            {/* Deadlines List Section (2/3 width) */}
-            <div className="lg:col-span-2 bg-white dark:bg-[#1a1a1a] rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+            {/* Prazos List (2/3 width) */}
+            <div className="xl:col-span-2 bg-white dark:bg-[#1a1a1a] rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-[#b8975a]" />
                   <span>Agenda de Prazos Fatais</span>
                 </h2>
                 
-                {/* Filters */}
-                <div className="flex flex-wrap gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800">
-                  <button
-                    onClick={() => setFilter('all')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                      filter === 'all' ? 'bg-[#b8975a] text-[#111111]' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'
-                    }`}
-                  >
-                    Todos
-                  </button>
-                  <button
-                    onClick={() => setFilter('high')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                      filter === 'high' ? 'bg-red-500 text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'
-                    }`}
-                  >
-                    Alta
-                  </button>
-                  <button
-                    onClick={() => setFilter('medium')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                      filter === 'medium' ? 'bg-yellow-500 text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'
-                    }`}
-                  >
-                    Média
-                  </button>
-                  <button
-                    onClick={() => setFilter('low')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                      filter === 'low' ? 'bg-blue-500 text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-white'
-                    }`}
-                  >
-                    Baixa
-                  </button>
+                {/* Tabs Filter */}
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold">
+                  {(['all', 'ALTA', 'MEDIA', 'BAIXA'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setFilter(opt)}
+                      className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                        filter === opt
+                          ? 'bg-[#b8975a] text-[#111111]'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {opt === 'all' ? 'Todos' : opt.charAt(0) + opt.slice(1).toLowerCase()}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Deadlines Table / Cards list */}
+              {/* Deadlines List */}
               <div className="space-y-4">
-                {filteredDeadlines.length === 0 ? (
-                  <p className="text-center py-8 text-sm text-slate-500 dark:text-slate-400">Nenhum prazo correspondente encontrado.</p>
+                {loading ? (
+                  <p className="text-center text-sm text-slate-500 py-6">Carregando prazos fatais...</p>
+                ) : filteredDeadlines.length === 0 ? (
+                  <p className="text-center text-sm text-slate-500 py-6">Nenhum prazo encontrado para este filtro.</p>
                 ) : (
                   filteredDeadlines.map((deadline) => (
                     <div 
                       key={deadline.id}
-                      className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                        deadline.status === 'Concluído'
-                          ? 'bg-slate-50/50 dark:bg-slate-900/10 border-slate-200/50 dark:border-slate-800/50 opacity-60'
-                          : 'bg-white dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-[#b8975a]/30'
-                      }`}
+                      className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-[#b8975a]/30 transition-all"
                     >
-                      <div className="space-y-1.5 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                            deadline.priority === 'high'
-                              ? 'bg-red-500/10 border border-red-500/35 text-red-500'
-                              : deadline.priority === 'medium'
-                              ? 'bg-yellow-500/10 border border-yellow-500/35 text-yellow-600 dark:text-yellow-500'
-                              : 'bg-blue-500/10 border border-blue-500/35 text-blue-500'
+                      <div className="space-y-1.5 bg-transparent">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+                            deadline.prioridade === 'ALTA'
+                              ? 'bg-red-500/10 border-red-500/20 text-red-500'
+                              : deadline.prioridade === 'MEDIA'
+                                ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+                                : 'bg-blue-500/10 border-blue-500/20 text-blue-500'
                           }`}>
-                            Prioridade {deadline.priority === 'high' ? 'Alta' : deadline.priority === 'medium' ? 'Média' : 'Baixa'}
+                            PRIORIDADE {deadline.prioridade}
                           </span>
-                          <span className="text-[11px] font-mono text-slate-400 block truncate">
-                            Proc: {deadline.processNumber}
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                            Proc: {deadline.processo_numero}
                           </span>
                         </div>
-                        <h4 className={`text-sm font-bold text-slate-800 dark:text-slate-100 ${
-                          deadline.status === 'Concluído' ? 'line-through text-slate-500' : ''
-                        }`}>
-                          {deadline.description}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-450">
-                          <Calendar className="h-3.5 w-3.5" />
-                          <span>Data Fatal: {new Date(deadline.deadlineDate).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</span>
-                          {deadline.status === 'Pendente' && (
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">
-                              ({deadline.daysLeft === 1 ? 'Restam 24h' : `Restam ${deadline.daysLeft} dias`})
+                        <h3 className="text-sm font-semibold text-slate-850 dark:text-slate-200">{deadline.titulo}</h3>
+                        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-[#b8975a]" />
+                            Data Fatal: {new Date(deadline.data_fatal).toLocaleDateString('pt-BR')}
+                          </span>
+                          {deadline.status === 'PENDENTE' ? (
+                            <span className="flex items-center gap-1 text-amber-500 font-medium">
+                              <Clock className="h-3.5 w-3.5" />
+                              {calculateDaysLeft(deadline.data_fatal)}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-emerald-500 font-medium">
+                              <Check className="h-3.5 w-3.5" />
+                              Concluído
                             </span>
                           )}
                         </div>
@@ -497,9 +643,12 @@ export default function LawyerDashboard() {
 
                       {/* Action buttons */}
                       <div className="shrink-0 flex items-center gap-2">
-                        {deadline.status === 'Pendente' ? (
+                        {deadline.status === 'PENDENTE' ? (
                           <button
-                            onClick={() => handleCompleteDeadline(deadline.id)}
+                            onClick={() => {
+                              setSelectedDeadline(deadline);
+                              setShowCompleteModal(true);
+                            }}
                             className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -518,7 +667,7 @@ export default function LawyerDashboard() {
               </div>
             </div>
 
-            {/* Client uploads notification panel (1/3 width) */}
+            {/* Documentos Recebidos (1/3 width) */}
             <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Inbox className="h-5 w-5 text-[#b8975a]" />
@@ -529,34 +678,295 @@ export default function LawyerDashboard() {
               </p>
 
               <div className="space-y-3">
-                {mockDocuments.map((doc) => (
-                  <div 
-                    key={doc.id}
-                    className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800 rounded-lg space-y-2 hover:border-[#b8975a]/30 transition-all"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-[#b8975a] shrink-0" />
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate block">
-                        {doc.fileName}
-                      </span>
+                {loading ? (
+                  <p className="text-center text-xs text-slate-500 py-4">Carregando documentos...</p>
+                ) : documents.length === 0 ? (
+                  <p className="text-center text-xs text-slate-500 py-4">Nenhum documento recebido.</p>
+                ) : (
+                  documents.map((doc) => (
+                    <div 
+                      key={doc.id}
+                      className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800 rounded-lg space-y-2 hover:border-[#b8975a]/30 transition-all"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="h-4 w-4 text-[#b8975a] shrink-0" />
+                          <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate block">
+                            {doc.documento_tipo}
+                          </span>
+                        </div>
+                        {doc.arquivo_url && doc.arquivo_url !== '#' && (
+                          <a 
+                            href={doc.arquivo_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-white"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                        <span>Autor: {doc.cliente_nome}</span>
+                        <span>Tam: {doc.tamanho_kb} KB</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/85">
+                        <span className={`text-[9px] font-bold ${
+                          doc.status_validacao === 'PENDENTE'
+                            ? 'text-amber-500'
+                            : doc.status_validacao === 'VALIDADO'
+                              ? 'text-emerald-500'
+                              : 'text-red-500'
+                        }`}>
+                          {doc.status_validacao}
+                        </span>
+                        
+                        {doc.status_validacao === 'PENDENTE' && (
+                          <button 
+                            onClick={() => {
+                              setSelectedDoc(doc);
+                              setShowValidateModal(true);
+                            }}
+                            className="text-[10px] font-bold text-[#b8975a] hover:underline cursor-pointer"
+                          >
+                            Validar & Vincular
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
-                      <span>Autor: {doc.uploadedBy.split(' ')[0]}</span>
-                      <span>Tam: {doc.fileSize}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/80">
-                      <span className="text-[10px] text-slate-500">{doc.uploadedAt}</span>
-                      <button className="text-[10px] font-bold text-[#b8975a] hover:underline cursor-pointer">
-                        Validar & Vincular
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
         </main>
       </div>
+
+      {/* Modal: Novo Prazo Fatal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative">
+            <button 
+              onClick={() => setShowAddModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-4">Novo Prazo Fatal</h3>
+            
+            <form onSubmit={handleCreateDeadline} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">NÚMERO DO PROCESSO</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Ex: 0012345-67.2024.8.19.0001"
+                  value={newProcesso}
+                  onChange={(e) => setNewProcesso(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">DESCRIÇÃO DA INTIMAÇÃO</label>
+                <textarea 
+                  required
+                  rows={3}
+                  placeholder="Ex: Réplica à Contestação apresentada..."
+                  value={newTitulo}
+                  onChange={(e) => setNewTitulo(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">DATA FATAL</label>
+                  <input 
+                    type="datetime-local" 
+                    required
+                    value={newDataFatal}
+                    onChange={(e) => setNewDataFatal(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">PRIORIDADE</label>
+                  <div className="relative">
+                    <select
+                      value={newPrioridade}
+                      onChange={(e) => setNewPrioridade(e.target.value as any)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none"
+                    >
+                      <option value="ALTA">Alta</option>
+                      <option value="MEDIA">Média</option>
+                      <option value="BAIXA">Baixa</option>
+                    </select>
+                    <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">ADVOGADO RESPONSÁVEL</label>
+                <div className="relative">
+                  <select
+                    value={newResponsavel}
+                    onChange={(e) => setNewResponsavel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none"
+                  >
+                    <option value="">Selecione um advogado</option>
+                    {lawyers.map((l) => (
+                      <option key={l.id} value={l.id}>{l.full_name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-sm shadow-lg transition-all"
+              >
+                Cadastrar Prazo Fatal
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmar Conclusão de Prazo */}
+      {showCompleteModal && selectedDeadline && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative">
+            <button 
+              onClick={() => {
+                setShowCompleteModal(false);
+                setSelectedDeadline(null);
+                setProtocoloNum('');
+                setComprovanteFile(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-2">Concluir Prazo</h3>
+            <p className="text-xs text-slate-500 mb-4 truncate">Processo: {selectedDeadline.processo_numero}</p>
+
+            <form onSubmit={handleCompleteDeadline} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">NÚMERO DE PROTOCOLO</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: PROTOCOLO-123456"
+                  value={protocoloNum}
+                  onChange={(e) => setProtocoloNum(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="border-2 border-dashed border-slate-350 dark:border-slate-850 rounded-lg p-6 text-center">
+                <input 
+                  type="file" 
+                  accept="application/pdf"
+                  id="pdf_file"
+                  className="hidden"
+                  onChange={(e) => setComprovanteFile(e.target.files ? e.target.files[0] : null)}
+                />
+                <label htmlFor="pdf_file" className="cursor-pointer space-y-2 block">
+                  <Upload className="h-8 w-8 text-[#b8975a] mx-auto" />
+                  <span className="block text-xs text-slate-500">
+                    {comprovanteFile ? comprovanteFile.name : 'Upload do Comprovante de Protocolo (PDF)'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCompleteModal(false);
+                    setSelectedDeadline(null);
+                    setProtocoloNum('');
+                    setComprovanteFile(null);
+                  }}
+                  className="flex-1 py-2 bg-slate-200 dark:bg-slate-850 hover:bg-slate-350 text-slate-700 dark:text-white font-semibold rounded-lg text-sm transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCompleting}
+                  className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-50"
+                >
+                  {isCompleting ? 'Finalizando...' : 'Concluir Prazo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Validar & Vincular Documento */}
+      {showValidateModal && selectedDoc && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative">
+            <button 
+              onClick={() => {
+                setShowValidateModal(false);
+                setSelectedDoc(null);
+                setLinkedProcessId('');
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-2">Validar & Vincular</h3>
+            <p className="text-xs text-slate-500 mb-4">Cliente: {selectedDoc.cliente_nome}</p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">VINCULAR AO PROCESSO</label>
+                <div className="relative">
+                  <select
+                    value={linkedProcessId}
+                    onChange={(e) => setLinkedProcessId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none"
+                  >
+                    <option value="">Selecione um processo do escritório</option>
+                    {lawsuitsList.map((ls) => (
+                      <option key={ls.id} value={ls.id}>{ls.process_number}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => handleValidateDoc('REJEITADO')}
+                  disabled={isValidating}
+                  className="flex-1 py-2 bg-red-650 hover:bg-red-700 text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-50"
+                >
+                  Rejeitar
+                </button>
+                <button
+                  onClick={() => handleValidateDoc('VALIDADO')}
+                  disabled={isValidating}
+                  className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-50"
+                >
+                  Validar & Vincular
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
