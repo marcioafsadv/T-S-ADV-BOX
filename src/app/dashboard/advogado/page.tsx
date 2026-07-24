@@ -112,6 +112,16 @@ export default function LawyerDashboard() {
   const [procStatus, setProcStatus] = useState<'Ativo' | 'Suspenso' | 'Arquivado'>('Ativo');
   const [procClientId, setProcClientId] = useState('');
 
+  // Modal de Cadastro de Novo Cliente
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientCpfCnpj, setNewClientCpfCnpj] = useState('');
+  const [newClientType, setNewClientType] = useState<'individual' | 'corporate'>('individual');
+  const [newClientPassword, setNewClientPassword] = useState('');
+  const [isSavingClient, setIsSavingClient] = useState(false);
+
   // Modal de Conclusão de Prazo
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [selectedDeadline, setSelectedDeadline] = useState<PrazoFatal | null>(null);
@@ -551,7 +561,84 @@ export default function LawyerDashboard() {
     setShowAddProcessModal(false);
   };
 
-  // 4. Ações de Documentos Recebidos
+  // 4. Ações de Cadastro de Clientes
+  const handleCreateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName || !newClientEmail || !newClientCpfCnpj || !newClientPassword) return;
+
+    setIsSavingClient(true);
+
+    if (isSupabaseConfigured) {
+      try {
+        // Cria um client temporário sem persistência de sessão para não deslogar o advogado atual
+        const { createClient } = await import('@supabase/supabase-js');
+        const tempClient = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jeupiqasngjfdurrdbjs.supabase.co',
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldXBpcWFzbmdqZmR1cnJkYmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NDg1ODAsImV4cCI6MjEwMDQyNDU4MH0.Do3jWBSlWRVZOYLvaEO2KMnh38fsYuQHYiNezp2UX-I',
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false
+            }
+          }
+        );
+
+        const { error } = await tempClient.auth.signUp({
+          email: newClientEmail,
+          password: newClientPassword,
+          options: {
+            data: {
+              full_name: newClientName,
+              role: 'client',
+              phone: newClientPhone,
+              cpf_cnpj: newClientCpfCnpj,
+              client_type: newClientType,
+              lgpd_consent: true
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        alert('Cliente cadastrado e integrado com sucesso ao Supabase!');
+        await fetchClients();
+      } catch (err: any) {
+        alert('Erro ao cadastrar cliente: ' + err.message);
+      } finally {
+        setIsSavingClient(false);
+        setShowAddClientModal(false);
+        setNewClientName('');
+        setNewClientEmail('');
+        setNewClientPhone('');
+        setNewClientCpfCnpj('');
+        setNewClientType('individual');
+        setNewClientPassword('');
+      }
+    } else {
+      // Mock Offline
+      const mockNew: ClienteCadastrado = {
+        id: `client-mock-${Date.now()}`,
+        client_name: newClientName,
+        client_email: newClientEmail,
+        client_phone: newClientPhone,
+        cpf_cnpj: newClientCpfCnpj,
+        client_type: newClientType,
+        lgpd_consent: true,
+        created_at: new Date().toISOString()
+      };
+      setClientsList(prev => [mockNew, ...prev]);
+      setIsSavingClient(false);
+      setShowAddClientModal(false);
+      setNewClientName('');
+      setNewClientEmail('');
+      setNewClientPhone('');
+      setNewClientCpfCnpj('');
+      setNewClientType('individual');
+      setNewClientPassword('');
+    }
+  };
+
+  // 5. Ações de Documentos Recebidos
   const handleValidateDoc = async (action: 'VALIDADO' | 'REJEITADO') => {
     if (!selectedDoc) return;
 
@@ -590,7 +677,7 @@ export default function LawyerDashboard() {
     }
   };
 
-  // 5. Contagem Regressiva e Filtros
+  // 6. Contagem Regressiva e Filtros
   const calculateDaysLeft = (targetDate: string) => {
     const diffTime = new Date(targetDate).getTime() - Date.now();
     const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
@@ -1165,6 +1252,14 @@ export default function LawyerDashboard() {
                 </div>
                 <p className="text-sm text-slate-555 dark:text-slate-400">Consulte a listagem de clientes integrados à plataforma e verifique os termos da LGPD.</p>
               </div>
+              
+              <button
+                onClick={() => setShowAddClientModal(true)}
+                className="flex items-center justify-center gap-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer hover:shadow-lg"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Novo Cliente</span>
+              </button>
             </div>
 
             {/* KPIs Card */}
@@ -1513,6 +1608,110 @@ export default function LawyerDashboard() {
                 className="w-full py-2.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-sm shadow-lg transition-all"
               >
                 Cadastrar Processo Ativo
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Novo Cliente */}
+      {showAddClientModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative">
+            <button 
+              onClick={() => setShowAddClientModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-4">Novo Cliente do Escritório</h3>
+            
+            <form onSubmit={handleCreateClient} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">NOME COMPLETO</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Ex: Roberto Albuquerque"
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">TIPO DE CLIENTE</label>
+                  <div className="relative">
+                    <select
+                      value={newClientType}
+                      onChange={(e) => setNewClientType(e.target.value as any)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none"
+                    >
+                      <option value="individual">Pessoa Física</option>
+                      <option value="corporate">Pessoa Jurídica</option>
+                    </select>
+                    <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">CPF OU CNPJ</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Ex: 000.000.000-00"
+                    value={newClientCpfCnpj}
+                    onChange={(e) => setNewClientCpfCnpj(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">E-MAIL</label>
+                  <input 
+                    type="email" 
+                    required
+                    placeholder="cliente@email.com"
+                    value={newClientEmail}
+                    onChange={(e) => setNewClientEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">TELEFONE</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: (11) 99999-9999"
+                    value={newClientPhone}
+                    onChange={(e) => setNewClientPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">SENHA DE ACESSO</label>
+                <input 
+                  type="password" 
+                  required
+                  placeholder="Mínimo 6 caracteres"
+                  value={newClientPassword}
+                  onChange={(e) => setNewClientPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSavingClient}
+                className="w-full py-2.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-sm shadow-lg transition-all disabled:opacity-50"
+              >
+                {isSavingClient ? 'Cadastrando no Supabase...' : 'Cadastrar Cliente'}
               </button>
             </form>
           </div>
