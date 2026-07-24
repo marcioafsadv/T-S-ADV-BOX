@@ -570,35 +570,27 @@ export default function LawyerDashboard() {
 
     if (isSupabaseConfigured) {
       try {
-        // Cria um client temporário sem persistência de sessão para não deslogar o advogado atual
-        const { createClient } = await import('@supabase/supabase-js');
-        const tempClient = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jeupiqasngjfdurrdbjs.supabase.co',
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldXBpcWFzbmdqZmR1cnJkYmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NDg1ODAsImV4cCI6MjEwMDQyNDU4MH0.Do3jWBSlWRVZOYLvaEO2KMnh38fsYuQHYiNezp2UX-I',
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false
-            }
-          }
-        );
-
-        const { error } = await tempClient.auth.signUp({
-          email: newClientEmail,
-          password: newClientPassword,
-          options: {
-            data: {
-              full_name: newClientName,
-              role: 'client',
-              phone: newClientPhone,
-              cpf_cnpj: newClientCpfCnpj,
-              client_type: newClientType,
-              lgpd_consent: true
-            }
-          }
+        // Envia requisição para a nossa API interna que usa o cliente administrativo do Supabase
+        // para cadastrar o cliente com e-mail já confirmado, impedindo o envio de e-mails
+        const res = await fetch('/api/admin/create-client', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: newClientName,
+            email: newClientEmail,
+            phone: newClientPhone,
+            cpfCnpj: newClientCpfCnpj,
+            clientType: newClientType,
+            password: newClientPassword
+          })
         });
 
-        if (error) throw error;
+        const resData = await res.json();
+        if (!res.ok || resData.error) {
+          throw new Error(resData.error || 'Erro na requisição de cadastro.');
+        }
 
         alert('Cliente cadastrado e integrado com sucesso ao Supabase!');
         await fetchClients();
