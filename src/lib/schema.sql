@@ -108,16 +108,37 @@ ALTER TABLE public.timeline_events ENABLE ROW LEVEL SECURITY;
 -- Função que copia o usuário criado na autenticação para a tabela public.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_role VARCHAR(50);
 BEGIN
+  v_role := COALESCE(new.raw_user_meta_data->>'role', 'client');
+
   INSERT INTO public.users (id, email, full_name, role, lgpd_consent, consent_at)
   VALUES (
     new.id,
     new.email,
     COALESCE(new.raw_user_meta_data->>'full_name', 'Usuário Novo'),
-    COALESCE(new.raw_user_meta_data->>'role', 'client'),
+    v_role,
     COALESCE((new.raw_user_meta_data->>'lgpd_consent')::boolean, false),
     CASE WHEN (new.raw_user_meta_data->>'lgpd_consent')::boolean = true THEN NOW() ELSE NULL END
   );
+
+  IF v_role = 'client' THEN
+    INSERT INTO public.clients (user_id, cpf_cnpj, client_type)
+    VALUES (
+      new.id,
+      COALESCE(new.raw_user_meta_data->>'cpf_cnpj', '000.000.000-00'),
+      'individual'
+    );
+  ELSIF v_role = 'lawyer' THEN
+    INSERT INTO public.lawyers (user_id, oab_number, specialty)
+    VALUES (
+      new.id,
+      COALESCE(new.raw_user_meta_data->>'oab_number', '000000/UF'),
+      'Geral'
+    );
+  END IF;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

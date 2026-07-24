@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, User, Lock, ArrowRight } from 'lucide-react';
+import { ShieldCheck, User, Lock, ArrowRight, Phone, FileText } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 
@@ -13,7 +13,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [lgpdAccepted, setLgpdAccepted] = useState(true);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Estados adicionais para Cadastro (Sign Up)
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [cpfCnpj, setCpfCnpj] = useState('');
+  const [oabNumber, setOabNumber] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +72,81 @@ export default function LoginPage() {
           router.push('/portal/cliente');
         }
       }, 800);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName || !email || !password) {
+      setError('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+    if (role === 'client' && !cpfCnpj) {
+      setError('Por favor, insira o seu CPF ou CNPJ.');
+      return;
+    }
+    if (role === 'lawyer' && !oabNumber) {
+      setError('Por favor, insira o seu número da OAB.');
+      return;
+    }
+    if (!lgpdAccepted) {
+      setError('Você precisa aceitar os termos da LGPD para prosseguir.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccessMessage('');
+
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+              role: role,
+              phone: phone,
+              cpf_cnpj: role === 'client' ? cpfCnpj : undefined,
+              oab_number: role === 'lawyer' ? oabNumber : undefined,
+              lgpd_consent: true,
+            }
+          }
+        });
+
+        if (signUpError) {
+          setError(signUpError.message);
+          setLoading(false);
+          return;
+        }
+
+        setSuccessMessage('Cadastro realizado com sucesso! Carregando painel...');
+        
+        setTimeout(() => {
+          if (role === 'lawyer') {
+            router.push('/dashboard/advogado');
+          } else {
+            router.push('/portal/cliente');
+          }
+        }, 1500);
+      } catch (err: any) {
+        setError('Erro de conexão: ' + err.message);
+        setLoading(false);
+      }
+    } else {
+      // Fallback para cadastro simulado
+      setTimeout(() => {
+        setLoading(false);
+        setSuccessMessage('Cadastro simulado com sucesso! Carregando...');
+        setTimeout(() => {
+          if (role === 'lawyer') {
+            router.push('/dashboard/advogado');
+          } else {
+            router.push('/portal/cliente');
+          }
+        }, 1000);
+      }, 1000);
     }
   };
 
@@ -126,7 +209,9 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           <div className="text-center lg:text-left space-y-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h2 className="text-3xl font-serif font-bold text-white tracking-tight">Portal Integrado</h2>
+              <h2 className="text-3xl font-serif font-bold text-white tracking-tight">
+                {isRegisterMode ? 'Criar Conta' : 'Portal Integrado'}
+              </h2>
               <span className={`self-center text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
                 isSupabaseConfigured
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
@@ -136,7 +221,9 @@ export default function LoginPage() {
               </span>
             </div>
             <p className="text-sm text-slate-400">
-              Escolha seu perfil e insira suas credenciais de acesso.
+              {isRegisterMode 
+                ? 'Preencha os campos abaixo para se cadastrar na plataforma.' 
+                : 'Escolha seu perfil e insira suas credenciais de acesso.'}
             </p>
           </div>
 
@@ -164,35 +251,116 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Quick Demo Access Badges */}
-          <div className="bg-[#1a2232]/40 rounded-xl p-4 border border-slate-800 space-y-2">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Acesso Rápido de Teste:</span>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => fillCredentials('client')}
-                className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
-              >
-                Roberto (Cliente)
-              </button>
-              <button
-                type="button"
-                onClick={() => fillCredentials('lawyer')}
-                className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
-              >
-                Dr. Carlos (Advogado)
-              </button>
+          {/* Quick Demo Access Badges (Only in login mode) */}
+          {!isRegisterMode && (
+            <div className="bg-[#1a2232]/40 rounded-xl p-4 border border-slate-800 space-y-2">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block">Acesso Rápido de Teste:</span>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => fillCredentials('client')}
+                  className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
+                >
+                  Roberto (Cliente)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fillCredentials('lawyer')}
+                  className="text-xs bg-slate-900 hover:bg-slate-850 text-slate-350 border border-slate-800 rounded-lg px-3 py-1.5 transition-all"
+                >
+                  Dr. Carlos (Advogado)
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={isRegisterMode ? handleRegister : handleLogin} className="space-y-6">
             {error && (
               <div className="bg-red-500/10 border border-red-500/35 text-red-200 rounded-lg p-3 text-sm">
                 {error}
               </div>
             )}
 
+            {successMessage && (
+              <div className="bg-emerald-500/10 border border-emerald-500/35 text-emerald-300 rounded-lg p-3 text-sm">
+                {successMessage}
+              </div>
+            )}
+
             <div className="space-y-4">
+              {isRegisterMode && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Nome Completo</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
+                        <User className="h-5 w-5" />
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="Ex: Roberto de Albuquerque"
+                        className="w-full pl-10 pr-4 py-3 rounded-lg bg-slate-900/80 border border-slate-800 focus:border-[#b8975a] focus:ring-1 focus:ring-[#b8975a] text-white placeholder-slate-500 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">Telefone / WhatsApp</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
+                        <Phone className="h-5 w-5" />
+                      </span>
+                      <input
+                        type="text"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="Ex: (11) 99999-9999"
+                        className="w-full pl-10 pr-4 py-3 rounded-lg bg-slate-900/80 border border-slate-800 focus:border-[#b8975a] focus:ring-1 focus:ring-[#b8975a] text-white placeholder-slate-500 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {role === 'client' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">CPF ou CNPJ</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
+                          <FileText className="h-5 w-5" />
+                        </span>
+                        <input
+                          type="text"
+                          required
+                          value={cpfCnpj}
+                          onChange={(e) => setCpfCnpj(e.target.value)}
+                          placeholder="Ex: 000.000.000-00"
+                          className="w-full pl-10 pr-4 py-3 rounded-lg bg-slate-900/80 border border-slate-800 focus:border-[#b8975a] focus:ring-1 focus:ring-[#b8975a] text-white placeholder-slate-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1.5">Número da OAB</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
+                          <FileText className="h-5 w-5" />
+                        </span>
+                        <input
+                          type="text"
+                          required
+                          value={oabNumber}
+                          onChange={(e) => setOabNumber(e.target.value)}
+                          placeholder="Ex: 123456/SP"
+                          className="w-full pl-10 pr-4 py-3 rounded-lg bg-slate-900/80 border border-slate-800 focus:border-[#b8975a] focus:ring-1 focus:ring-[#b8975a] text-white placeholder-slate-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">E-mail</label>
                 <div className="relative">
@@ -248,9 +416,27 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-[#b8975a] to-[#e2c690] hover:from-[#e2c690] hover:to-[#b8975a] text-[#111111] font-bold rounded-lg shadow-lg shadow-[#b8975a]/10 hover:shadow-[#b8975a]/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span>{loading ? 'Processando Autenticação...' : 'Acessar o Painel'}</span>
+              <span>
+                {loading 
+                  ? 'Processando...' 
+                  : (isRegisterMode ? 'Cadastrar e Acessar' : 'Acessar o Painel')}
+              </span>
               {!loading && <ArrowRight className="h-4 w-4" />}
             </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegisterMode(!isRegisterMode);
+                  setError('');
+                  setSuccessMessage('');
+                }}
+                className="text-xs text-slate-400 hover:text-white transition-all underline cursor-pointer"
+              >
+                {isRegisterMode ? 'Já possui uma conta? Faça Login' : 'Não possui uma conta? Cadastre-se'}
+              </button>
+            </div>
           </form>
 
           {/* Footer mobile */}
