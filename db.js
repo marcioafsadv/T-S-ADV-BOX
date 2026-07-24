@@ -3,7 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // Hostinger injeta essas variáveis de ambiente automaticamente após a integração
 const supabaseUrl = process.env.SUPABASE_URL || 'https://jeupiqasngjfdurrdbjs.supabase.co';
-const supabaseKey = process.env.SUPABASE_KEY || 'sb_publishable_YuD8sGQNExZzGCKCBwf-tQ_58fCZDWP';
+const supabaseKey = process.env.SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpldXBpcWFzbmdqZmR1cnJkYmpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NDg1ODAsImV4cCI6MjEwMDQyNDU4MH0.Do3jWBSlWRVZOYLvaEO2KMnh38fsYuQHYiNezp2UX-I';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
