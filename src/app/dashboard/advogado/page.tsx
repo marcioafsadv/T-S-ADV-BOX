@@ -46,8 +46,20 @@ export default function LawyerDashboard() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
-        setLawyerName(user.user_metadata?.full_name || 'Dr. Advogado');
-        setLawyerEmail(user.email || 'carlos.silva@torressilva.com.br');
+        // Busca o nome real do usuário da tabela public.users
+        const { data: dbUser } = await supabase
+          .from('users')
+          .select('full_name, email')
+          .eq('id', user.id)
+          .single();
+
+        if (dbUser) {
+          setLawyerName(dbUser.full_name || 'Dr. Advogado');
+          setLawyerEmail(dbUser.email || user.email || 'advogado@torressilva.com.br');
+        } else {
+          setLawyerName(user.user_metadata?.full_name || 'Dr. Advogado');
+          setLawyerEmail(user.email || 'advogado@torressilva.com.br');
+        }
 
         // Buscar processos
         const { data: lawsuitsData } = await supabase

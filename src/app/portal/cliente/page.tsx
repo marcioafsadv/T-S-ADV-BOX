@@ -36,7 +36,18 @@ export default function ClientPortal() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
-        setClientName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cliente');
+        // Busca o nome real do usuário da tabela public.users
+        const { data: dbUser } = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', user.id)
+          .single();
+
+        if (dbUser) {
+          setClientName(dbUser.full_name || 'Cliente');
+        } else {
+          setClientName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Cliente');
+        }
 
         const { data: clientData } = await supabase
           .from('clients')
