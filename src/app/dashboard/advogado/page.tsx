@@ -19,9 +19,10 @@ import {
   Upload,
   ExternalLink,
   ChevronDown,
-  Briefcase,
-  Layers,
-  FolderOpen
+  FolderOpen,
+  Users,
+  ShieldAlert,
+  ShieldCheck
 } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
@@ -60,18 +61,29 @@ interface ProcessoAtivo {
   client_name?: string;
 }
 
+interface ClienteCadastrado {
+  id: string;
+  client_name: string;
+  client_email: string;
+  client_phone: string;
+  cpf_cnpj: string;
+  client_type: 'individual' | 'corporate';
+  lgpd_consent: boolean;
+  created_at: string;
+}
+
 export default function LawyerDashboard() {
   const router = useRouter();
   
   // Controle de Navegação Interna (Abas)
-  const [activeTab, setActiveTab] = useState<'prazos' | 'processos'>('prazos');
+  const [activeTab, setActiveTab] = useState<'prazos' | 'processos' | 'clientes'>('prazos');
 
   // Estados de Dados
   const [deadlines, setDeadlines] = useState<PrazoFatal[]>([]);
   const [documents, setDocuments] = useState<DocumentoRecebido[]>([]);
   const [lawyers, setLawyers] = useState<any[]>([]);
   const [lawsuitsList, setLawsuitsList] = useState<ProcessoAtivo[]>([]);
-  const [clientsList, setClientsList] = useState<any[]>([]);
+  const [clientsList, setClientsList] = useState<ClienteCadastrado[]>([]);
   
   // Estado do Usuário Logado
   const [lawyerName, setLawyerName] = useState('Dr. Advogado');
@@ -80,6 +92,7 @@ export default function LawyerDashboard() {
   // Estados de Interface e Modais
   const [filter, setFilter] = useState<'all' | 'ALTA' | 'MEDIA' | 'BAIXA'>('all');
   const [processFilter, setProcessFilter] = useState<'all' | 'Ativo' | 'Suspenso' | 'Arquivado'>('all');
+  const [clientFilter, setClientFilter] = useState<'all' | 'individual' | 'corporate'>('all');
   const [loading, setLoading] = useState(true);
   
   // Modal de Cadastro de Novo Prazo
@@ -151,6 +164,42 @@ export default function LawyerDashboard() {
     }
   };
 
+  // Função para buscar a lista de clientes cadastrados
+  const fetchClients = async () => {
+    try {
+      const { data: dbClients } = await supabase
+        .from('clients')
+        .select(`
+          id,
+          cpf_cnpj,
+          client_type,
+          created_at,
+          users (
+            full_name,
+            email,
+            phone,
+            lgpd_consent
+          )
+        `);
+
+      if (dbClients) {
+        const mapped: ClienteCadastrado[] = dbClients.map((c: any) => ({
+          id: c.id,
+          client_name: c.users?.full_name || 'Cliente Sem Nome',
+          client_email: c.users?.email || 'Sem e-mail',
+          client_phone: c.users?.phone || 'Sem telefone',
+          cpf_cnpj: c.cpf_cnpj,
+          client_type: c.client_type,
+          lgpd_consent: c.users?.lgpd_consent || false,
+          created_at: c.created_at
+        }));
+        setClientsList(mapped);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar clientes:', err);
+    }
+  };
+
   // 1. Carregamento de Dados Iniciais e Subs de Realtime
   useEffect(() => {
     const loadInitialData = async () => {
@@ -211,7 +260,18 @@ export default function LawyerDashboard() {
           }
         ]);
         setLawyers([{ id: 'mock-l1', full_name: 'Dr. Carlos Silva' }]);
-        setClientsList([{ id: 'mock-c1', client_name: 'Roberto Albuquerque' }]);
+        setClientsList([
+          {
+            id: 'mock-c1',
+            client_name: 'Roberto Albuquerque',
+            client_email: 'roberto.albuquerque@gmail.com',
+            client_phone: '(11) 99888-7766',
+            cpf_cnpj: '123.456.789-00',
+            client_type: 'individual',
+            lgpd_consent: true,
+            created_at: new Date().toISOString()
+          }
+        ]);
         setLawsuitsList([
           {
             id: 'mock-lawsuit-1',
@@ -254,21 +314,8 @@ export default function LawyerDashboard() {
           .eq('role', 'lawyer');
         if (dbLawyers) setLawyers(dbLawyers);
 
-        // Buscar Clientes cadastrados para dropdowns
-        const { data: dbClients } = await supabase
-          .from('clients')
-          .select(`
-            id,
-            users (
-              full_name
-            )
-          `);
-        if (dbClients) {
-          setClientsList(dbClients.map((c: any) => ({
-            id: c.id,
-            client_name: c.users?.full_name || 'Cliente Geral'
-          })));
-        }
+        // Buscar Clientes cadastrados
+        await fetchClients();
 
         // Buscar Processos Iniciais
         await fetchLawsuits();
@@ -343,10 +390,22 @@ export default function LawyerDashboard() {
         )
         .subscribe();
 
+      const clientsChannel = supabase
+        .channel('clients_realtime_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'clients' },
+          async () => {
+            await fetchClients();
+          }
+        )
+        .subscribe();
+
       return () => {
         supabase.removeChannel(prazosChannel);
         supabase.removeChannel(docsChannel);
         supabase.removeChannel(lawsuitsChannel);
+        supabase.removeChannel(clientsChannel);
       };
     }
   }, []);
@@ -554,6 +613,11 @@ export default function LawyerDashboard() {
     return l.status === processFilter;
   });
 
+  const filteredClients = clientsList.filter(c => {
+    if (clientFilter === 'all') return true;
+    return c.client_type === clientFilter;
+  });
+
   // KPIs Prazos
   const activeDeadlinesCount = deadlines.filter(d => d.status === 'PENDENTE').length;
   const highPriorityCriticalCount = deadlines.filter(d => d.status === 'PENDENTE' && d.prioridade === 'ALTA').length;
@@ -563,6 +627,11 @@ export default function LawyerDashboard() {
   const totalLawsuitsCount = lawsuitsList.length;
   const activeLawsuitsCount = lawsuitsList.filter(l => l.status === 'Ativo').length;
   const suspendedLawsuitsCount = lawsuitsList.filter(l => l.status === 'Suspenso').length;
+
+  // KPIs Clientes
+  const totalClientsCount = clientsList.length;
+  const individualClientsCount = clientsList.filter(c => c.client_type === 'individual').length;
+  const corporateClientsCount = clientsList.filter(c => c.client_type === 'corporate').length;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#070c14] text-slate-800 dark:text-slate-100 font-sans flex">
@@ -604,10 +673,18 @@ export default function LawyerDashboard() {
             <span>Processos Ativos</span>
           </button>
 
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-slate-900/60 hover:text-white transition-all text-slate-400">
+          <button 
+            onClick={() => setActiveTab('clientes')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all cursor-pointer ${
+              activeTab === 'clientes'
+                ? 'bg-slate-800/50 text-[#b8975a] font-semibold border-l-2 border-[#b8975a]'
+                : 'text-slate-400 hover:bg-slate-900/60 hover:text-white'
+            }`}
+          >
             <User className="h-4 w-4" />
             <span>Clientes cadastrados</span>
           </button>
+          
           <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-slate-900/60 hover:text-white transition-all text-slate-400">
             <FileText className="h-4 w-4" />
             <span>Documentação Geral</span>
@@ -648,7 +725,11 @@ export default function LawyerDashboard() {
             <span>Escritório Central</span>
             <ChevronRight className="h-4 w-4" />
             <span className="text-slate-900 dark:text-white font-medium">
-              {activeTab === 'prazos' ? 'Controle Operacional de Prazos' : 'Processos Ativos e Acompanhamento'}
+              {activeTab === 'prazos' 
+                ? 'Controle Operacional de Prazos' 
+                : activeTab === 'processos'
+                  ? 'Processos Ativos e Acompanhamento'
+                  : 'Clientes Cadastrados no Portal'}
             </span>
           </div>
 
@@ -863,13 +944,13 @@ export default function LawyerDashboard() {
                               href={doc.arquivo_url} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="text-slate-400 hover:text-[#b8975a] transition-colors"
+                              className="text-slate-400 hover:text-white"
                             >
                               <ExternalLink className="h-3 w-3" />
                             </a>
                           )}
                         </div>
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center justify-between text-[10px] text-slate-550 dark:text-slate-450">
                           <span>Autor: {doc.cliente_nome}</span>
                           <span>Tam: {doc.tamanho_kb} KB</span>
                         </div>
@@ -924,7 +1005,7 @@ export default function LawyerDashboard() {
                     {isSupabaseConfigured ? 'Supabase Ativo' : 'Modo Demo (Mocks)'}
                   </span>
                 </div>
-                <p className="text-sm text-slate-550 dark:text-slate-400">Gerencie a carteira de processos judiciais e vincule-os a clientes cadastrados.</p>
+                <p className="text-sm text-slate-555 dark:text-slate-400">Gerencie a carteira de processos judiciais e vincule-os a clientes cadastrados.</p>
               </div>
               <button
                 onClick={() => setShowAddProcessModal(true)}
@@ -979,7 +1060,7 @@ export default function LawyerDashboard() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <Scale className="h-5 w-5 text-[#b8975a]" />
-                  <span>Carteira de Processos Ativos</span>
+                  <span>Carteira de Processos Judiciais</span>
                 </h2>
 
                 {/* Filter */}
@@ -1052,6 +1133,169 @@ export default function LawyerDashboard() {
                             }`}>
                               {lawsuit.status}
                             </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </main>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 3: CLIENTES CADASTRADOS */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'clientes' && (
+          <main className="flex-grow p-6 space-y-6 overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <h1 className="text-2xl font-serif font-bold text-slate-900 dark:text-white">Clientes Cadastrados</h1>
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold border w-fit ${
+                    isSupabaseConfigured
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600 dark:text-yellow-500'
+                  }`}>
+                    {isSupabaseConfigured ? 'Supabase Ativo' : 'Modo Demo (Mocks)'}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-555 dark:text-slate-400">Consulte a listagem de clientes integrados à plataforma e verifique os termos da LGPD.</p>
+              </div>
+            </div>
+
+            {/* KPIs Card */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Total de Clientes</span>
+                  <span className="block text-3xl font-bold text-slate-900 dark:text-white mt-1">
+                    {loading ? '...' : totalClientsCount}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-500/10 rounded-xl text-slate-500 dark:text-slate-400">
+                  <Users className="h-6 w-6" />
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Pessoa Física (PF)</span>
+                  <span className="block text-3xl font-bold text-[#b8975a] mt-1">
+                    {loading ? '...' : individualClientsCount}
+                  </span>
+                </div>
+                <div className="p-3 bg-[#b8975a]/10 rounded-xl text-[#b8975a]">
+                  <User className="h-6 w-6" />
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Pessoa Jurídica (PJ)</span>
+                  <span className="block text-3xl font-bold text-blue-500 mt-1">
+                    {loading ? '...' : corporateClientsCount}
+                  </span>
+                </div>
+                <div className="p-3 bg-blue-500/10 rounded-xl text-blue-500">
+                  <Scale className="h-6 w-6" />
+                </div>
+              </div>
+            </div>
+
+            {/* List Table container */}
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="text-lg font-serif font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Users className="h-5 w-5 text-[#b8975a]" />
+                  <span>Base de Clientes Cadastrados</span>
+                </h2>
+
+                {/* Filter */}
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold">
+                  {(['all', 'individual', 'corporate'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setClientFilter(opt)}
+                      className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                        clientFilter === opt
+                          ? 'bg-[#b8975a] text-[#111111]'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {opt === 'all' ? 'Todos' : opt === 'individual' ? 'Pessoa Física' : 'Pessoa Jurídica'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Clients Grid */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-500 dark:text-slate-400">
+                  <thead className="text-xs uppercase bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-6 py-4">NOME DO CLIENTE</th>
+                      <th className="px-6 py-4">CPF / CNPJ</th>
+                      <th className="px-6 py-4">TIPO</th>
+                      <th className="px-6 py-4">CONTATO</th>
+                      <th className="px-6 py-4">STATUS LGPD</th>
+                      <th className="px-6 py-4">CADASTRO</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                          Carregando clientes cadastrados...
+                        </td>
+                      </tr>
+                    ) : filteredClients.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
+                          Nenhum cliente cadastrado.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredClients.map((client) => (
+                        <tr 
+                          key={client.id}
+                          className="hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition-colors"
+                        >
+                          <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-150">
+                            {client.client_name}
+                          </td>
+                          <td className="px-6 py-4 font-mono text-slate-700 dark:text-slate-300">
+                            {client.cpf_cnpj}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-semibold">
+                            {client.client_type === 'individual' ? (
+                              <span className="text-[#b8975a] px-2 py-0.5 bg-[#b8975a]/10 rounded border border-[#b8975a]/20">Pessoa Física</span>
+                            ) : (
+                              <span className="text-blue-500 px-2 py-0.5 bg-blue-500/10 rounded border border-blue-500/20">Pessoa Jurídica</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="block font-semibold text-slate-750 dark:text-slate-200">{client.client_email}</span>
+                            <span className="block text-[10px] text-slate-400">{client.client_phone}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            {client.lgpd_consent ? (
+                              <span className="text-emerald-500 flex items-center gap-1 text-xs font-semibold">
+                                <ShieldCheck className="h-4 w-4" />
+                                <span>Consentido</span>
+                              </span>
+                            ) : (
+                              <span className="text-red-500 flex items-center gap-1 text-xs font-semibold">
+                                <ShieldAlert className="h-4 w-4" />
+                                <span>Pendente</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            {new Date(client.created_at).toLocaleDateString('pt-BR')}
                           </td>
                         </tr>
                       ))
