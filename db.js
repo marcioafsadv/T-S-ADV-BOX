@@ -2,7 +2,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
 // Hostinger injeta essas variáveis de ambiente automaticamente após a integração
-const supabaseUrl = process.env.SUPABASE_URL || 'https://joupiqasngjfdurmdbjs.supabase.co';
+const supabaseUrl = process.env.SUPABASE_URL || 'https://jeupiqasngjfdurrdbjs.supabase.co';
 const supabaseKey = process.env.SUPABASE_KEY || 'sb_publishable_YuD8sGQNExZzGCKCBwf-tQ_58fCZDWP';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
