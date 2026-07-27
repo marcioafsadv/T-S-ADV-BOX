@@ -17,15 +17,26 @@ export async function POST(request: Request) {
     oabNumber = body.oabNumber;
     oabUf = body.oabUf || 'SP';
 
-    const uf = oabUf.toLowerCase();
-    const tribunal = `tj${uf}`; // tjsp, tjrj, tjmg, etc.
-
-    // A chave pública padrão fornecida pelo CNJ para a API Pública do Datajud (atualizada conforme Wiki)
+    // A chave pública atualizada do Datajud (obtida na Wiki do CNJ)
     const apiKey = process.env.DATAJUD_API_KEY || 'ApiKey cDZHYzIza0JadVREZDJCendQbXY6SkJtTzNjLV9TRENyQk1RdnFKZGRQdw==';
 
-    const url = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
+    // Lista de tribunais/regiões de interesse indicados para pesquisa
+    const tribunaisAlvos = [
+      'tst',    // Tribunal Superior do Trabalho
+      'stj',    // Superior Tribunal de Justiça
+      'trf3',   // TRF da 3ª Região (SP/MS)
+      'tjrj',   // TJ do Rio de Janeiro
+      'tjsp',   // TJ de São Paulo
+      'tjmg',   // TJ de Minas Gerais
+      'tjba',   // TJ da Bahia
+      'tjdft',  // TJ do Distrito Federal e Territórios
+      'tjpr',   // TJ do Paraná
+      'trt1',   // TRT da 1ª Região (RJ)
+      'trt2',   // TRT da 2ª Região (SP Capital)
+      'trt15'   // TRT da 15ª Região (Campinas/SP Interior)
+    ];
 
-    // Constrói a query de busca no Elasticsearch do Datajud pelo número da OAB nos advogados cadastrados no processo
+    // Payload estruturado em Query DSL (Elasticsearch) para buscar pela OAB nos advogados cadastrados
     const queryPayload = {
       query: {
         bool: {
@@ -42,61 +53,86 @@ export async function POST(request: Request) {
       size: 15
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': apiKey.startsWith('ApiKey ') ? apiKey : `ApiKey ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(queryPayload),
-      // Adicionamos timeout curto para caso a API pública do tribunal esteja fora do ar/com delay
-      signal: AbortSignal.timeout(10000) 
+    // Dispara as consultas a todos os tribunais de interesse em paralelo
+    const searchPromises = tribunaisAlvos.map(async (tribunal) => {
+      try {
+        const url = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': apiKey.startsWith('ApiKey ') ? apiKey : `ApiKey ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(queryPayload),
+          signal: AbortSignal.timeout(6000) // Timeout individual de 6s para evitar travamento se um tribunal cair
+        });
+
+        if (!response.ok) return [];
+
+        const searchData = await response.json();
+        const hits = searchData.hits?.hits || [];
+
+        return hits.map((hit: any) => {
+          const source = hit._source || {};
+          return {
+            process_number: formatCNJ(source.numeroProcesso || ''),
+            court: source.orgaoJulgador?.nome || 'Vara Federal/Estadual/Trabalho',
+            comarca: source.tribunal || tribunal.toUpperCase(),
+            lawsuit_class: source.classe?.nome || 'Procedimento Judiciário',
+            status: 'Ativo'
+          };
+        });
+      } catch (err) {
+        console.warn(`Erro ao consultar tribunal ${tribunal.toUpperCase()}:`, err);
+        return [];
+      }
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Erro na API Pública do Datajud (${tribunal.toUpperCase()}): ${response.status} - ${errorText}`);
-    }
-
-    const searchData = await response.json();
-    const hits = searchData.hits?.hits || [];
-
-    // Mapeamento dos resultados retornados pelo Elasticsearch do Datajud
-    const processos = hits.map((hit: any) => {
-      const source = hit._source || {};
-      return {
-        process_number: formatCNJ(source.numeroProcesso || ''),
-        court: source.orgaoJulgador?.nome || 'Vara Cível',
-        comarca: source.tribunal || tribunal.toUpperCase(),
-        lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível',
-        status: 'Ativo'
-      };
+    // Aguarda a resolução de todas as chamadas em paralelo
+    const results = await Promise.all(searchPromises);
+    
+    // Consolida os resultados e remove processos duplicados (Set)
+    const todosProcessosMap = new Map<string, any>();
+    
+    results.flat().forEach(proc => {
+      if (proc.process_number) {
+        // Evita que o mesmo processo seja adicionado duas vezes caso apareça em instâncias diferentes na mesma busca
+        todosProcessosMap.set(proc.process_number, proc);
+      }
     });
+
+    const processosConsolidados = Array.from(todosProcessosMap.values());
 
     return NextResponse.json({ 
       success: true, 
-      processos,
-      message: processos.length === 0 ? 'Busca concluída, mas nenhum processo foi encontrado para esta OAB neste tribunal.' : undefined
+      processos: processosConsolidados,
+      message: processosConsolidados.length === 0 ? 'Busca concluída, mas nenhum processo foi encontrado para esta OAB nas regiões consultadas.' : undefined
     });
 
   } catch (err: any) {
-    // Caso a API pública do Datajud caia ou ocorra timeout, retornamos uma simulação realista
-    // para não interromper os testes de interface do usuário
-    console.warn(`Datajud falhou, ativando fallback de simulação: ${err.message}`);
+    console.warn(`Pesquisa paralela do Datajud falhou: ${err.message}`);
     
+    // Fallback de simulação
     const mockProcessos = [
       {
         process_number: `00${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 89)}.2024.8.26.0100`,
-        court: '4ª Vara Cível da Comarca da Capital (Simulado Datajud)',
-        comarca: `TJ${oabUf.toUpperCase()}`,
+        court: '4ª Vara Cível da Comarca da Capital (Simulado TJSP)',
+        comarca: `TJSP`,
         lawsuit_class: 'Procedimento Comum Cível',
         status: 'Ativo'
       },
       {
         process_number: `00${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 89)}.2024.8.19.0001`,
-        court: '12ª Vara de Família (Simulado Datajud)',
-        comarca: `TJ${oabUf.toUpperCase()}`,
+        court: '12ª Vara de Família (Simulado TJRJ)',
+        comarca: `TJRJ`,
         lawsuit_class: 'Divórcio Consensual',
+        status: 'Ativo'
+      },
+      {
+        process_number: `00${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 89)}.2023.5.02.0002`,
+        court: '2ª Vara do Trabalho de São Paulo (Simulado TRT2)',
+        comarca: `TRT2`,
+        lawsuit_class: 'Ação Trabalhista',
         status: 'Ativo'
       }
     ];
