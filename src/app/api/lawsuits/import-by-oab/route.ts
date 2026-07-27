@@ -20,9 +20,8 @@ export async function POST(request: Request) {
     const uf = oabUf.toLowerCase();
     const tribunal = `tj${uf}`; // tjsp, tjrj, tjmg, etc.
 
-    // A chave pública padrão fornecida pelo CNJ para a API Pública do Datajud
-    // mantemos esta chave pública como fallback automático caso o usuário não configure uma própria
-    const apiKey = process.env.DATAJUD_API_KEY || 'ApiKey cFJSdUpvRFU0SURCY1Flcm9xWjY6azZid3E4OVRRMS1hYndOWjR6Rlhmdw==';
+    // A chave pública padrão fornecida pelo CNJ para a API Pública do Datajud (atualizada conforme Wiki)
+    const apiKey = process.env.DATAJUD_API_KEY || 'ApiKey cDZHYzIza0JadVREZDJCendQbXY6SkJtTzNjLV9TRENyQk1RdnFKZGRQdw==';
 
     const url = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
 
