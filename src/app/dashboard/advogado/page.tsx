@@ -135,6 +135,16 @@ export default function LawyerDashboard() {
   const [linkedProcessId, setLinkedProcessId] = useState('');
   const [isValidating, setIsValidating] = useState(false);
 
+  // Modal de Importação via OAB (Jusbrasil)
+  const [showImportOabModal, setShowImportOabModal] = useState(false);
+  const [oabNumber, setOabNumber] = useState('');
+  const [oabUf, setOabUf] = useState('SP');
+  const [isSearchingOab, setIsSearchingOab] = useState(false);
+  const [foundProcessos, setFoundProcessos] = useState<any[]>([]);
+  const [selectedProcessos, setSelectedProcessos] = useState<string[]>([]);
+  const [processoClients, setProcessoClients] = useState<Record<string, string>>({});
+  const [isImporting, setIsImporting] = useState(false);
+
   // Função para buscar processos com os nomes dos clientes
   const fetchLawsuits = async () => {
     try {
@@ -559,6 +569,95 @@ export default function LawyerDashboard() {
     setProcStatus('Ativo');
     setProcClientId('');
     setShowAddProcessModal(false);
+  };
+
+  const handleSearchOab = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!oabNumber || !oabUf) return;
+
+    setIsSearchingOab(true);
+    setFoundProcessos([]);
+    setSelectedProcessos([]);
+    setProcessoClients({});
+
+    try {
+      const res = await fetch('/api/lawsuits/import-by-oab', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oabNumber, oabUf })
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Erro ao buscar processos pela OAB.');
+
+      setFoundProcessos(data.processos || []);
+      if (data.isMock) {
+        alert('Busca efetuada com sucesso! Exibindo processos de simulação do Jusbrasil.');
+      }
+    } catch (err: any) {
+      alert('Erro ao buscar OAB: ' + err.message);
+    } finally {
+      setIsSearchingOab(false);
+    }
+  };
+
+  const handleImportProcessos = async () => {
+    if (selectedProcessos.length === 0) return;
+
+    for (const procNum of selectedProcessos) {
+      if (!processoClients[procNum]) {
+        alert(`Por favor, selecione o cliente para o processo ${procNum}.`);
+        return;
+      }
+    }
+
+    setIsImporting(true);
+
+    try {
+      const importPromises = selectedProcessos.map(async (procNum) => {
+        const proc = foundProcessos.find(p => p.process_number === procNum);
+        if (!proc) return;
+
+        const dataNew = {
+          process_number: proc.process_number,
+          court: proc.court,
+          comarca: proc.comarca,
+          lawsuit_class: proc.lawsuit_class,
+          status: proc.status || 'Ativo',
+          client_id: processoClients[procNum]
+        };
+
+        if (isSupabaseConfigured) {
+          const { error } = await supabase
+            .from('lawsuits')
+            .insert(dataNew);
+          if (error) throw error;
+        } else {
+          const selectedClient = clientsList.find(c => c.id === dataNew.client_id);
+          const mockNew: ProcessoAtivo = {
+            id: `processo-mock-${Date.now()}-${Math.random()}`,
+            client_name: selectedClient?.client_name || 'Cliente Geral',
+            ...dataNew
+          };
+          setLawsuitsList(prev => [mockNew, ...prev]);
+        }
+      });
+
+      await Promise.all(importPromises);
+      alert('Processos importados com sucesso!');
+      setShowImportOabModal(false);
+      setOabNumber('');
+      setFoundProcessos([]);
+      setSelectedProcessos([]);
+      setProcessoClients({});
+      
+      if (isSupabaseConfigured) {
+        await fetchLawsuits();
+      }
+    } catch (err: any) {
+      alert('Erro ao importar processos: ' + err.message);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   // 4. Ações de Cadastro de Clientes
@@ -1086,13 +1185,22 @@ export default function LawyerDashboard() {
                 </div>
                 <p className="text-sm text-slate-555 dark:text-slate-400">Gerencie a carteira de processos judiciais e vincule-os a clientes cadastrados.</p>
               </div>
-              <button
-                onClick={() => setShowAddProcessModal(true)}
-                className="flex items-center justify-center gap-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer hover:shadow-lg"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Novo Processo</span>
-              </button>
+              <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                <button
+                  onClick={() => setShowImportOabModal(true)}
+                  className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-750 text-[#b8975a] border border-[#b8975a]/25 font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer hover:shadow-lg"
+                >
+                  <Scale className="h-4 w-4" />
+                  <span>Importar via OAB</span>
+                </button>
+                <button
+                  onClick={() => setShowAddProcessModal(true)}
+                  className="flex items-center justify-center gap-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-semibold text-sm px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer hover:shadow-lg"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Novo Processo</span>
+                </button>
+              </div>
             </div>
 
             {/* KPIs Card */}
@@ -1835,6 +1943,152 @@ export default function LawyerDashboard() {
                   Validar & Vincular
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Importação via OAB (Jusbrasil) */}
+      {showImportOabModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative flex flex-col max-h-[85vh]">
+            <button 
+              onClick={() => {
+                setShowImportOabModal(false);
+                setOabNumber('');
+                setFoundProcessos([]);
+                setSelectedProcessos([]);
+                setProcessoClients({});
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-2">Importar Processos via OAB</h3>
+            <p className="text-xs text-slate-550 dark:text-slate-400 mb-4">Busque processos cadastrados nos tribunais através do número da OAB do advogado (via Jusbrasil API).</p>
+
+            {/* Busca form */}
+            <form onSubmit={handleSearchOab} className="flex gap-3 mb-4 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800/80">
+              <div className="w-1/3 bg-transparent">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">ESTADO (UF)</label>
+                <div className="relative">
+                  <select
+                    value={oabUf}
+                    onChange={(e) => setOabUf(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded bg-white dark:bg-slate-850 border border-slate-250 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white appearance-none font-semibold"
+                  >
+                    {['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'].map(uf => (
+                      <option key={uf} value={uf}>{uf}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="h-3.5 w-3.5 absolute right-2 top-2 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="flex-1 bg-transparent">
+                <label className="block text-[10px] font-bold text-slate-400 mb-1">NÚMERO DA OAB</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: 123456"
+                  value={oabNumber}
+                  onChange={(e) => setOabNumber(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded bg-white dark:bg-slate-850 border border-slate-250 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white font-semibold font-mono"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={isSearchingOab}
+                  className="px-4 py-1.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold text-xs rounded transition-all disabled:opacity-50 h-[32px] cursor-pointer"
+                >
+                  {isSearchingOab ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+            </form>
+
+            {/* Resultado da busca */}
+            <div className="flex-grow overflow-y-auto space-y-3 min-h-[200px] max-h-[40vh] pr-1">
+              {isSearchingOab ? (
+                <p className="text-center text-xs text-slate-500 py-12">Consultando a API do Jusbrasil...</p>
+              ) : foundProcessos.length === 0 ? (
+                <p className="text-center text-xs text-slate-500 py-12">Nenhum processo listado. Insira a OAB acima para buscar.</p>
+              ) : (
+                foundProcessos.map((proc, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-slate-800/80 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                    <div className="space-y-1 flex-1 bg-transparent">
+                      <div className="flex items-center gap-2 bg-transparent">
+                        <input
+                          type="checkbox"
+                          id={`chk-${idx}`}
+                          checked={selectedProcessos.includes(proc.process_number)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedProcessos(prev => [...prev, proc.process_number]);
+                            } else {
+                              setSelectedProcessos(prev => prev.filter(n => n !== proc.process_number));
+                            }
+                          }}
+                          className="h-3.5 w-3.5 accent-[#b8975a]"
+                        />
+                        <label htmlFor={`chk-${idx}`} className="font-mono font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
+                          {proc.process_number}
+                        </label>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-semibold">{proc.court} • {proc.comarca}</p>
+                      <p className="text-[10px] text-slate-450 truncate max-w-sm">{proc.lawsuit_class}</p>
+                    </div>
+
+                    {/* Vínculo de Cliente */}
+                    {selectedProcessos.includes(proc.process_number) && (
+                      <div className="w-full md:w-48 shrink-0 bg-transparent">
+                        <label className="block text-[9px] font-bold text-[#b8975a] mb-0.5">VINCULAR CLIENTE *</label>
+                        <div className="relative">
+                          <select
+                            value={processoClients[proc.process_number] || ''}
+                            onChange={(e) => setProcessoClients(prev => ({ ...prev, [proc.process_number]: e.target.value }))}
+                            className="w-full px-2 py-1 rounded bg-white dark:bg-slate-850 border border-slate-250 dark:border-slate-800 text-[10px] outline-none text-slate-900 dark:text-white appearance-none"
+                            required
+                          >
+                            <option value="">Selecione o proprietário</option>
+                            {clientsList.map((c) => (
+                              <option key={c.id} value={c.id}>{c.client_name}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="h-3 w-3 absolute right-1.5 top-1.5 text-slate-400 pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 mt-4 shrink-0 bg-transparent">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportOabModal(false);
+                  setOabNumber('');
+                  setFoundProcessos([]);
+                  setSelectedProcessos([]);
+                  setProcessoClients({});
+                }}
+                className="px-4 py-2 bg-slate-200 dark:bg-slate-850 hover:bg-slate-350 text-slate-700 dark:text-white font-semibold rounded-lg text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleImportProcessos}
+                disabled={selectedProcessos.length === 0 || isImporting}
+                className="px-4 py-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isImporting ? 'Importando...' : `Importar ${selectedProcessos.length} Processo(s)`}
+              </button>
             </div>
           </div>
         </div>
