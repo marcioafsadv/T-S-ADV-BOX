@@ -22,7 +22,9 @@ import {
   FolderOpen,
   Users,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
@@ -165,6 +167,18 @@ export default function LawyerDashboard() {
   const [newDrawerTaskTitle, setNewDrawerTaskTitle] = useState('');
   const [newDrawerEventTitle, setNewDrawerEventTitle] = useState('');
   const [newDrawerEventDesc, setNewDrawerEventDesc] = useState('');
+
+  // Estados do Modal de Edição de Processo
+  const [showEditProcessModal, setShowEditProcessModal] = useState(false);
+  const [editingProcess, setEditingProcess] = useState<ProcessoAtivo | null>(null);
+  const [editNumber, setEditNumber] = useState('');
+  const [editCourt, setEditCourt] = useState('');
+  const [editComarca, setEditComarca] = useState('');
+  const [editClass, setEditClass] = useState('');
+  const [editStatus, setEditStatus] = useState<'Ativo' | 'Suspenso' | 'Arquivado'>('Ativo');
+  const [editClientId, setEditClientId] = useState('');
+  const [editValueOfCause, setEditValueOfCause] = useState('');
+  const [editDistributionDate, setEditDistributionDate] = useState('');
 
   // Função para buscar processos com os nomes dos clientes
   const fetchLawsuits = async () => {
@@ -733,6 +747,61 @@ export default function LawyerDashboard() {
     setProcDistributionDate('');
     setProcMovements([]);
     setShowAddProcessModal(false);
+  };
+
+  const handleDeleteLawsuit = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Evita abrir o drawer lateral ao clicar no botão de excluir
+    if (!confirm('Deseja realmente excluir este processo? Esta ação é irreversível e apagará todos os prazos, tarefas e movimentações vinculadas.')) return;
+
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase
+          .from('lawsuits')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        alert('Processo excluído com sucesso!');
+        fetchLawsuits();
+      } else {
+        setLawsuitsList(prev => prev.filter(l => l.id !== id));
+      }
+    } catch (err: any) {
+      alert('Erro ao excluir processo: ' + err.message);
+    }
+  };
+
+  const handleSaveEditLawsuit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProcess || !editNumber || !editCourt || !editComarca || !editClass || !editClientId) return;
+
+    const dataUpdated = {
+      process_number: editNumber,
+      court: editCourt,
+      comarca: editComarca,
+      lawsuit_class: editClass,
+      status: editStatus,
+      client_id: editClientId,
+      value_of_cause: editValueOfCause || null,
+      distribution_date: editDistributionDate || null
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase
+          .from('lawsuits')
+          .update(dataUpdated)
+          .eq('id', editingProcess.id);
+        if (error) throw error;
+        alert('Processo atualizado com sucesso!');
+        fetchLawsuits();
+      } else {
+        setLawsuitsList(prev => prev.map(l => l.id === editingProcess.id ? { ...l, ...dataUpdated, client_name: clientsList.find(c => c.id === editClientId)?.client_name || 'Cliente Geral' } : l));
+      }
+      setShowEditProcessModal(false);
+      setEditingProcess(null);
+    } catch (err: any) {
+      alert('Erro ao atualizar processo: ' + err.message);
+    }
   };
 
   // Funções do Drawer Lateral de Detalhes
@@ -1581,18 +1650,19 @@ export default function LawyerDashboard() {
                       <th className="px-6 py-4">CLASSE</th>
                       <th className="px-6 py-4">FORUM / TRIBUNAL</th>
                       <th className="px-6 py-4">STATUS</th>
+                      <th className="px-6 py-4">AÇÕES</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
                     {loading ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                           Carregando processos ativos...
                         </td>
                       </tr>
                     ) : filteredLawsuits.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                           Nenhum processo cadastrado.
                         </td>
                       </tr>
@@ -1629,6 +1699,36 @@ export default function LawyerDashboard() {
                             }`}>
                               {lawsuit.status}
                             </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2 bg-transparent">
+                              <button
+                                title="Editar Processo"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingProcess(lawsuit);
+                                  setEditNumber(lawsuit.process_number);
+                                  setEditCourt(lawsuit.court);
+                                  setEditComarca(lawsuit.comarca);
+                                  setEditClass(lawsuit.lawsuit_class);
+                                  setEditStatus(lawsuit.status);
+                                  setEditClientId(lawsuit.client_id);
+                                  setEditValueOfCause(lawsuit.value_of_cause || '');
+                                  setEditDistributionDate(lawsuit.distribution_date || '');
+                                  setShowEditProcessModal(true);
+                                }}
+                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-655 dark:text-slate-350 cursor-pointer"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                title="Excluir Processo"
+                                onClick={(e) => handleDeleteLawsuit(e, lawsuit.id)}
+                                className="p-1 rounded bg-red-500/10 hover:bg-red-500/25 text-red-500 cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -2683,6 +2783,149 @@ export default function LawyerDashboard() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Editar Processo */}
+      {showEditProcessModal && editingProcess && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative flex flex-col max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => {
+                setShowEditProcessModal(false);
+                setEditingProcess(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-655 dark:hover:text-white cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-2">Editar Processo</h3>
+            <p className="text-xs text-slate-500 mb-4">Atualize as informações gerais e capa do processo judicial.</p>
+
+            <form onSubmit={handleSaveEditLawsuit} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">NÚMERO DO PROCESSO (CNJ)</label>
+                <input 
+                  type="text" 
+                  required
+                  value={editNumber}
+                  onChange={(e) => setEditNumber(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">TRIBUNAL / VARA</label>
+                <input 
+                  type="text" 
+                  required
+                  value={editCourt}
+                  onChange={(e) => setEditCourt(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">COMARCA / UF</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={editComarca}
+                    onChange={(e) => setEditComarca(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">STATUS</label>
+                  <div className="relative">
+                    <select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value as any)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none font-semibold"
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Suspenso">Suspenso</option>
+                      <option value="Arquivado">Arquivado</option>
+                    </select>
+                    <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">CLASSE PROCESSUAL</label>
+                <input 
+                  type="text" 
+                  required
+                  value={editClass}
+                  onChange={(e) => setEditClass(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">VALOR DA CAUSA</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: R$ 50.000,00"
+                    value={editValueOfCause}
+                    onChange={(e) => setEditValueOfCause(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">DATA DE DISTRIBUIÇÃO</label>
+                  <input 
+                    type="date" 
+                    value={editDistributionDate}
+                    onChange={(e) => setEditDistributionDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">CLIENTE VINCULADO</label>
+                <div className="relative">
+                  <select
+                    value={editClientId}
+                    onChange={(e) => setEditClientId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white appearance-none"
+                    required
+                  >
+                    <option value="">Selecione o proprietário do processo</option>
+                    {clientsList.map((c) => (
+                      <option key={c.id} value={c.id}>{c.client_name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="h-4 w-4 absolute right-3 top-3 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditProcessModal(false);
+                    setEditingProcess(null);
+                  }}
+                  className="px-4 py-2 bg-slate-200 dark:bg-slate-850 hover:bg-slate-350 text-slate-700 dark:text-white font-semibold rounded-lg text-sm transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-sm transition-all cursor-pointer"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
