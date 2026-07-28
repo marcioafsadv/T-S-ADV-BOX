@@ -146,6 +146,21 @@ export default function LawyerDashboard() {
   const [isImporting, setIsImporting] = useState(false);
   const [isSearchingCNJ, setIsSearchingCNJ] = useState(false);
 
+  // Estados do Drawer Lateral de Detalhes do Processo
+  const [selectedLawsuitForDetail, setSelectedLawsuitForDetail] = useState<ProcessoAtivo | null>(null);
+  const [showDetailDrawer, setShowDetailDrawer] = useState(false);
+  const [detailActiveTab, setDetailActiveTab] = useState<'resumo' | 'prazos' | 'tarefas' | 'historico'>('resumo');
+  const [drawerDeadlines, setDrawerDeadlines] = useState<any[]>([]);
+  const [drawerTasks, setDrawerTasks] = useState<any[]>([]);
+  const [drawerEvents, setDrawerEvents] = useState<any[]>([]);
+  const [isLoadingDrawerData, setIsLoadingDrawerData] = useState(false);
+  const [newDrawerDeadlineDesc, setNewDrawerDeadlineDesc] = useState('');
+  const [newDrawerDeadlineDate, setNewDrawerDeadlineDate] = useState('');
+  const [newDrawerDeadlinePriority, setNewDrawerDeadlinePriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [newDrawerTaskTitle, setNewDrawerTaskTitle] = useState('');
+  const [newDrawerEventTitle, setNewDrawerEventTitle] = useState('');
+  const [newDrawerEventDesc, setNewDrawerEventDesc] = useState('');
+
   // Função para buscar processos com os nomes dos clientes
   const fetchLawsuits = async () => {
     try {
@@ -676,6 +691,155 @@ export default function LawyerDashboard() {
     setProcStatus('Ativo');
     setProcClientId('');
     setShowAddProcessModal(false);
+  };
+
+  // Funções do Drawer Lateral de Detalhes
+  const fetchDrawerData = async (lawsuitId: string) => {
+    setIsLoadingDrawerData(true);
+    try {
+      if (isSupabaseConfigured) {
+        // 1. Busca prazos
+        const { data: deadlines, error: dlErr } = await supabase
+          .from('deadlines')
+          .select('*')
+          .eq('lawsuit_id', lawsuitId)
+          .order('deadline_date', { ascending: true });
+        if (dlErr) throw dlErr;
+
+        // 2. Busca tarefas
+        const { data: tasks, error: tskErr } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('lawsuit_id', lawsuitId)
+          .order('created_at', { ascending: false });
+        if (tskErr) throw tskErr;
+
+        // 3. Busca histórico de andamentos (timeline_events)
+        const { data: events, error: evErr } = await supabase
+          .from('timeline_events')
+          .select('*')
+          .eq('lawsuit_id', lawsuitId)
+          .order('created_at', { ascending: false });
+        if (evErr) throw evErr;
+
+        setDrawerDeadlines(deadlines || []);
+        setDrawerTasks(tasks || []);
+        setDrawerEvents(events || []);
+      } else {
+        // Fallbacks offline para Modo Demo
+        setDrawerDeadlines([
+          { id: 'dl-1', description: 'Manifestação sobre Contestação', deadline_date: '2026-08-10', priority: 'high', status: 'Pendente' }
+        ]);
+        setDrawerTasks([
+          { id: 'tsk-1', title: 'Falar com o cliente Kassiane Guedes', status: 'Pendente' },
+          { id: 'tsk-2', title: 'Solicitar extratos bancários', status: 'Concluído' }
+        ]);
+        setDrawerEvents([
+          { id: 'ev-1', title: 'Distribuição da Ação', description_leiga: 'O processo foi iniciado com sucesso.', event_date: '28 Jul 2026', status: 'done' }
+        ]);
+      }
+    } catch (err: any) {
+      console.error('Erro ao buscar dados do painel:', err);
+      alert('Erro ao carregar dados do processo: ' + err.message);
+    } finally {
+      setIsLoadingDrawerData(false);
+    }
+  };
+
+  const handleAddDrawerDeadline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLawsuitForDetail || !newDrawerDeadlineDesc || !newDrawerDeadlineDate) return;
+
+    const dataNew = {
+      lawsuit_id: selectedLawsuitForDetail.id,
+      description: newDrawerDeadlineDesc,
+      deadline_date: newDrawerDeadlineDate,
+      priority: newDrawerDeadlinePriority,
+      status: 'Pendente'
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase.from('deadlines').insert(dataNew).select();
+        if (error) throw error;
+        if (data) setDrawerDeadlines(prev => [...prev, data[0]]);
+      } else {
+        setDrawerDeadlines(prev => [...prev, { id: `dl-${Date.now()}`, ...dataNew }]);
+      }
+      setNewDrawerDeadlineDesc('');
+      setNewDrawerDeadlineDate('');
+      alert('Prazo adicionado com sucesso!');
+    } catch (err: any) {
+      alert('Erro ao criar prazo: ' + err.message);
+    }
+  };
+
+  const handleAddDrawerTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLawsuitForDetail || !newDrawerTaskTitle) return;
+
+    const dataNew = {
+      lawsuit_id: selectedLawsuitForDetail.id,
+      title: newDrawerTaskTitle,
+      status: 'Pendente'
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase.from('tasks').insert(dataNew).select();
+        if (error) throw error;
+        if (data) setDrawerTasks(prev => [data[0], ...prev]);
+      } else {
+        setDrawerTasks(prev => [{ id: `tsk-${Date.now()}`, ...dataNew }, ...prev]);
+      }
+      setNewDrawerTaskTitle('');
+    } catch (err: any) {
+      alert('Erro ao criar tarefa: ' + err.message);
+    }
+  };
+
+  const handleToggleDrawerTask = async (taskId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'Pendente' ? 'Concluído' : 'Pendente';
+    try {
+      if (isSupabaseConfigured) {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ status: nextStatus })
+          .eq('id', taskId);
+        if (error) throw error;
+      }
+      setDrawerTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: nextStatus } : t));
+    } catch (err: any) {
+      alert('Erro ao atualizar tarefa: ' + err.message);
+    }
+  };
+
+  const handleAddDrawerEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLawsuitForDetail || !newDrawerEventTitle || !newDrawerEventDesc) return;
+
+    const dataNew = {
+      lawsuit_id: selectedLawsuitForDetail.id,
+      title: newDrawerEventTitle,
+      description_leiga: newDrawerEventDesc,
+      event_date: new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }),
+      status: 'done'
+    };
+
+    try {
+      if (isSupabaseConfigured) {
+        const { data, error } = await supabase.from('timeline_events').insert(dataNew).select();
+        if (error) throw error;
+        if (data) setDrawerEvents(prev => [data[0], ...prev]);
+      } else {
+        setDrawerEvents(prev => [{ id: `ev-${Date.now()}`, ...dataNew }, ...prev]);
+      }
+      setNewDrawerEventTitle('');
+      setNewDrawerEventDesc('');
+      alert('Movimentação adicionada com sucesso!');
+    } catch (err: any) {
+      alert('Erro ao criar andamento: ' + err.message);
+    }
   };
 
   const handleSearchOab = async (e: React.FormEvent) => {
@@ -1394,7 +1558,13 @@ export default function LawyerDashboard() {
                       filteredLawsuits.map((lawsuit) => (
                         <tr 
                           key={lawsuit.id}
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition-colors"
+                          onClick={() => {
+                            setSelectedLawsuitForDetail(lawsuit);
+                            setDetailActiveTab('resumo');
+                            setShowDetailDrawer(true);
+                            fetchDrawerData(lawsuit.id);
+                          }}
+                          className="hover:bg-slate-100/60 dark:hover:bg-slate-900/40 transition-all cursor-pointer select-none"
                         >
                           <td className="px-6 py-4 font-mono font-semibold text-slate-800 dark:text-slate-150">
                             {lawsuit.process_number}
@@ -2185,6 +2355,279 @@ export default function LawyerDashboard() {
               >
                 {isImporting ? 'Importando...' : `Importar ${selectedProcessos.length} Processo(s)`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DRAWER LATERAL: Detalhes do Processo */}
+      {showDetailDrawer && selectedLawsuitForDetail && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-all duration-300">
+          {/* Overlay para fechar ao clicar fora */}
+          <div className="absolute inset-0 cursor-default" onClick={() => setShowDetailDrawer(false)} />
+          
+          <div className="relative w-full max-w-xl bg-white dark:bg-[#151515] h-full shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col animate-slide-in z-10">
+            {/* Header do Drawer */}
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between bg-slate-50 dark:bg-slate-900/40">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-[#b8975a] tracking-wider">Detalhamento da Causa</span>
+                <h4 className="text-base font-mono font-bold text-slate-900 dark:text-white mt-0.5">{selectedLawsuitForDetail.process_number}</h4>
+              </div>
+              <button 
+                onClick={() => setShowDetailDrawer(false)}
+                className="p-1.5 rounded-lg bg-slate-200/50 hover:bg-slate-300/60 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Menu de Abas (Tabs) do Drawer */}
+            <div className="flex border-b border-slate-200 dark:border-slate-800 px-4 bg-white dark:bg-[#151515]">
+              {(['resumo', 'prazos', 'tarefas', 'historico'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setDetailActiveTab(tab)}
+                  className={`flex-1 py-3 text-xs font-bold border-b-2 capitalize transition-all cursor-pointer ${
+                    detailActiveTab === tab
+                      ? 'border-b-2 border-[#b8975a] text-[#b8975a]'
+                      : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {tab === 'historico' ? 'Andamentos' : tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Conteúdo do Drawer */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-white dark:bg-[#151515] text-slate-800 dark:text-slate-300">
+              {isLoadingDrawerData ? (
+                <div className="flex flex-col items-center justify-center h-64 space-y-2">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#b8975a]" />
+                  <p className="text-xs text-slate-550 dark:text-slate-450 font-medium">Buscando dados processuais...</p>
+                </div>
+              ) : (
+                <>
+                  {/* TAB 1: RESUMO DO PROCESSO */}
+                  {detailActiveTab === 'resumo' && (
+                    <div className="space-y-4 bg-transparent">
+                      <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/80 space-y-3">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Capa do Processo</h5>
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <span className="block text-[10px] text-slate-400 uppercase font-semibold">Tribunal / Vara</span>
+                            <span className="font-semibold text-slate-850 dark:text-slate-150">{selectedLawsuitForDetail.court}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] text-slate-400 uppercase font-semibold">Comarca / Região</span>
+                            <span className="font-semibold text-slate-850 dark:text-slate-150">{selectedLawsuitForDetail.comarca}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] text-slate-400 uppercase font-semibold">Classe Processual</span>
+                            <span className="font-semibold text-slate-850 dark:text-slate-150">{selectedLawsuitForDetail.lawsuit_class}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] text-slate-400 uppercase font-semibold">Status do Processo</span>
+                            <span className="font-bold text-emerald-500">{selectedLawsuitForDetail.status}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/80 space-y-3">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Partes e Envolvidos</h5>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-850 pb-2">
+                            <div>
+                              <span className="block text-[10px] text-slate-400 uppercase font-semibold">Polo Ativo (Autor)</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-100">{selectedLawsuitForDetail.client_name}</span>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-bold">Cliente</span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] text-slate-400 uppercase font-semibold">Polo Passivo (Réu)</span>
+                            <span className="font-bold text-slate-550 dark:text-slate-400">Informação não declarada (Disponível nos Autos)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: PRAZOS E INTIMAÇÕES */}
+                  {detailActiveTab === 'prazos' && (
+                    <div className="space-y-4 bg-transparent">
+                      {/* Form de adicionar prazo */}
+                      <form onSubmit={handleAddDrawerDeadline} className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/80 space-y-3">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Adicionar Novo Prazo</h5>
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Descrição do prazo (ex: Manifestar sobre laudo)"
+                            value={newDrawerDeadlineDesc}
+                            onChange={e => setNewDrawerDeadlineDesc(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white"
+                          />
+                          <div className="flex gap-2">
+                            <input
+                              type="date"
+                              required
+                              value={newDrawerDeadlineDate}
+                              onChange={e => setNewDrawerDeadlineDate(e.target.value)}
+                              className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white"
+                            />
+                            <select
+                              value={newDrawerDeadlinePriority}
+                              onChange={e => setNewDrawerDeadlinePriority(e.target.value as any)}
+                              className="px-2 py-1.5 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white font-semibold"
+                            >
+                              <option value="high">Alta Prioridade</option>
+                              <option value="medium">Média Prioridade</option>
+                              <option value="low">Baixa Prioridade</option>
+                            </select>
+                          </div>
+                          <button
+                            type="submit"
+                            className="w-full py-1.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            Salvar Prazo
+                          </button>
+                        </div>
+                      </form>
+
+                      {/* Lista de prazos */}
+                      <div className="space-y-2 bg-transparent">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Prazos Agendados</h5>
+                        {drawerDeadlines.length === 0 ? (
+                          <p className="text-xs text-slate-500 py-4 text-center">Nenhum prazo agendado para este processo.</p>
+                        ) : (
+                          drawerDeadlines.map(dl => (
+                            <div key={dl.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/20 text-xs">
+                              <div>
+                                <p className="font-semibold text-slate-850 dark:text-slate-150">{dl.description}</p>
+                                <p className="text-[10px] text-slate-450 mt-0.5">Prazo Fatal: {new Date(dl.deadline_date).toLocaleDateString('pt-BR')}</p>
+                              </div>
+                              <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${
+                                dl.priority === 'high'
+                                  ? 'bg-red-500/10 border-red-500/20 text-red-500'
+                                  : dl.priority === 'medium'
+                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-500'
+                                    : 'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                              }`}>
+                                {dl.priority === 'high' ? 'Alta' : dl.priority === 'medium' ? 'Média' : 'Baixa'}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: TAREFAS & PENDÊNCIAS */}
+                  {detailActiveTab === 'tarefas' && (
+                    <div className="space-y-4 bg-transparent">
+                      {/* Form de adicionar tarefa */}
+                      <form onSubmit={handleAddDrawerTask} className="flex gap-2 bg-transparent">
+                        <input
+                          type="text"
+                          required
+                          placeholder="Nova tarefa jurídica (ex: Ligar para testemunha)..."
+                          value={newDrawerTaskTitle}
+                          onChange={e => setNewDrawerTaskTitle(e.target.value)}
+                          className="flex-grow px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 bg-slate-800 hover:bg-slate-750 text-[#b8975a] border border-[#b8975a]/20 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0"
+                        >
+                          Adicionar
+                        </button>
+                      </form>
+
+                      {/* Lista de tarefas */}
+                      <div className="space-y-2 bg-transparent">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Checklist de Tarefas</h5>
+                        {drawerTasks.length === 0 ? (
+                          <p className="text-xs text-slate-500 py-4 text-center">Nenhuma tarefa pendente para este processo.</p>
+                        ) : (
+                          drawerTasks.map(t => (
+                            <div 
+                              key={t.id}
+                              onClick={() => handleToggleDrawerTask(t.id, t.status)}
+                              className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 dark:border-slate-850 hover:bg-slate-55 dark:hover:bg-slate-900/30 cursor-pointer select-none text-xs transition-all"
+                            >
+                              <input 
+                                type="checkbox"
+                                checked={t.status === 'Concluído'}
+                                onChange={() => {}} // Tratado no onClick do container
+                                className="h-4 w-4 accent-[#b8975a] cursor-pointer"
+                              />
+                              <span className={`font-medium ${
+                                t.status === 'Concluído' ? 'line-through text-slate-400 dark:text-slate-650' : 'text-slate-800 dark:text-slate-200'
+                              }`}>
+                                {t.title}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: HISTÓRICO / LINHA DO TEMPO */}
+                  {detailActiveTab === 'historico' && (
+                    <div className="space-y-4 bg-transparent">
+                      {/* Form de adicionar andamento manual */}
+                      <form onSubmit={handleAddDrawerEvent} className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/80 space-y-3">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider">Inserir Andamento Manual</h5>
+                        <div className="space-y-2 bg-transparent">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Título do andamento (ex: Despacho publicado)"
+                            value={newDrawerEventTitle}
+                            onChange={e => setNewDrawerEventTitle(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white"
+                          />
+                          <textarea
+                            required
+                            rows={2}
+                            placeholder="Descrição simples/leiga do andamento para o cliente..."
+                            value={newDrawerEventDesc}
+                            onChange={e => setNewDrawerEventDesc(e.target.value)}
+                            className="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs outline-none text-slate-900 dark:text-white"
+                          />
+                          <button
+                            type="submit"
+                            className="w-full py-1.5 bg-[#b8975a] hover:bg-[#e2c690] text-[#111111] font-bold rounded-lg text-xs transition-all cursor-pointer"
+                          >
+                            Registrar Movimentação
+                          </button>
+                        </div>
+                      </form>
+
+                      {/* Timeline de andamentos */}
+                      <div className="relative pl-4 border-l border-slate-200 dark:border-slate-800 space-y-6 bg-transparent">
+                        <h5 className="text-xs font-bold text-slate-450 uppercase tracking-wider -ml-4 pl-4 bg-white dark:bg-[#151515] pb-2">Linha do Tempo</h5>
+                        {drawerEvents.length === 0 ? (
+                          <p className="text-xs text-slate-550 py-4 text-center -ml-4">Nenhuma movimentação registrada.</p>
+                        ) : (
+                          drawerEvents.map(ev => (
+                            <div key={ev.id} className="relative space-y-1 bg-transparent">
+                              {/* Bolinha da timeline */}
+                              <div className="absolute -left-[21px] top-1 h-3.5 w-3.5 rounded-full border-2 border-[#b8975a] bg-white dark:bg-[#151515]" />
+                              
+                              <div className="text-xs bg-transparent">
+                                <span className="text-[10px] text-[#b8975a] font-bold block">{ev.event_date}</span>
+                                <h6 className="font-bold text-slate-850 dark:text-slate-150">{ev.title}</h6>
+                                <p className="text-slate-500 dark:text-slate-400 mt-0.5">{ev.description_leiga}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
