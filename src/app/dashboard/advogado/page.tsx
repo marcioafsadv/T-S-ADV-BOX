@@ -59,6 +59,8 @@ interface ProcessoAtivo {
   status: 'Ativo' | 'Suspenso' | 'Arquivado';
   client_id: string;
   client_name?: string;
+  value_of_cause?: string | null;
+  distribution_date?: string | null;
 }
 
 interface ClienteCadastrado {
@@ -145,6 +147,9 @@ export default function LawyerDashboard() {
   const [processoClients, setProcessoClients] = useState<Record<string, string>>({});
   const [isImporting, setIsImporting] = useState(false);
   const [isSearchingCNJ, setIsSearchingCNJ] = useState(false);
+  const [procValueOfCause, setProcValueOfCause] = useState<string>('');
+  const [procDistributionDate, setProcDistributionDate] = useState<string>('');
+  const [procMovements, setProcMovements] = useState<any[]>([]);
 
   // Estados do Drawer Lateral de Detalhes do Processo
   const [selectedLawsuitForDetail, setSelectedLawsuitForDetail] = useState<ProcessoAtivo | null>(null);
@@ -174,6 +179,8 @@ export default function LawyerDashboard() {
           lawsuit_class,
           status,
           client_id,
+          value_of_cause,
+          distribution_date,
           clients (
             id,
             users (
@@ -196,7 +203,9 @@ export default function LawyerDashboard() {
             lawsuit_class: l.lawsuit_class,
             status: l.status,
             client_id: l.client_id,
-            client_name: clientData?.users?.full_name || 'Cliente Geral'
+            client_name: clientData?.users?.full_name || 'Cliente Geral',
+            value_of_cause: l.value_of_cause,
+            distribution_date: l.distribution_date
           };
         });
         setLawsuitsList(mapped);
@@ -579,10 +588,13 @@ export default function LawyerDashboard() {
         throw new Error(resData.message || resData.error || 'Erro no servidor.');
       }
 
-      const { court, comarca, lawsuit_class } = resData.data;
+      const { court, comarca, lawsuit_class, value_of_cause, distribution_date, movements } = resData.data;
       setProcCourt(court);
       setProcComarca(comarca);
       setProcClass(lawsuit_class);
+      setProcValueOfCause(value_of_cause || '');
+      setProcDistributionDate(distribution_date || '');
+      setProcMovements(movements || []);
       alert('Dados do processo importados com sucesso da base do Datajud/CNJ!');
     } catch (err: any) {
       // 2. Fallback de conexão direta pelo navegador do usuário (ignora bloqueio de IP da Hostinger)
@@ -642,6 +654,13 @@ export default function LawyerDashboard() {
         setProcCourt(source.orgaoJulgador?.nome || 'Vara Cível');
         setProcComarca(source.tribunal || tribunal.toUpperCase());
         setProcClass(source.classe?.nome || 'Procedimento Comum Cível');
+        setProcValueOfCause(source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '');
+        setProcDistributionDate(source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : '');
+        setProcMovements(source.movimentos?.map((m: any) => ({
+          title: m.nome || 'Movimentação Processual',
+          description_leiga: m.complemento || 'Movimentação registrada no tribunal.',
+          event_date: m.dataHora ? new Date(m.dataHora).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('pt-BR')
+        })) || []);
         alert('Dados do processo importados com sucesso via conexão direta (CORS Fallback)!');
       } catch (directErr: any) {
         alert('Erro ao buscar processo no Datajud: ' + directErr.message);
@@ -662,15 +681,35 @@ export default function LawyerDashboard() {
       comarca: procComarca,
       lawsuit_class: procClass,
       status: procStatus,
-      client_id: procClientId
+      client_id: procClientId,
+      value_of_cause: procValueOfCause || null,
+      distribution_date: procDistributionDate || null
     };
 
     if (isSupabaseConfigured) {
       try {
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('lawsuits')
-          .insert(dataNew);
+          .insert(dataNew)
+          .select('id')
+          .single();
         if (error) throw error;
+
+        // Se houver histórico de movimentações pré-buscadas no CNJ, insere todas no timeline_events
+        if (inserted && procMovements.length > 0) {
+          const eventsToInsert = procMovements.map(m => ({
+            lawsuit_id: inserted.id,
+            title: m.title,
+            description_leiga: m.description_leiga,
+            event_date: m.event_date,
+            status: 'done'
+          }));
+          const { error: evErr } = await supabase.from('timeline_events').insert(eventsToInsert);
+          if (evErr) console.error('Erro ao importar linha do tempo do CNJ:', evErr);
+        }
+        
+        alert('Processo cadastrado e histórico do CNJ importado com sucesso!');
+        fetchLawsuits(); // Recarrega a lista
       } catch (err: any) {
         alert('Erro ao cadastrar processo: ' + err.message);
       }
@@ -690,6 +729,9 @@ export default function LawyerDashboard() {
     setProcClass('');
     setProcStatus('Ativo');
     setProcClientId('');
+    setProcValueOfCause('');
+    setProcDistributionDate('');
+    setProcMovements([]);
     setShowAddProcessModal(false);
   };
 
@@ -2429,6 +2471,18 @@ export default function LawyerDashboard() {
                             <span className="block text-[10px] text-slate-400 uppercase font-semibold">Status do Processo</span>
                             <span className="font-bold text-emerald-500">{selectedLawsuitForDetail.status}</span>
                           </div>
+                          {selectedLawsuitForDetail.value_of_cause && (
+                            <div>
+                              <span className="block text-[10px] text-slate-400 uppercase font-semibold">Valor da Causa</span>
+                              <span className="font-semibold text-slate-850 dark:text-slate-150">{selectedLawsuitForDetail.value_of_cause}</span>
+                            </div>
+                          )}
+                          {selectedLawsuitForDetail.distribution_date && (
+                            <div>
+                              <span className="block text-[10px] text-slate-400 uppercase font-semibold">Data de Distribuição</span>
+                              <span className="font-semibold text-slate-850 dark:text-slate-150">{new Date(selectedLawsuitForDetail.distribution_date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -91,7 +91,14 @@ export async function POST(request: Request) {
         process_number: processNumber,
         court: source.orgaoJulgador?.nome || 'Vara Cível',
         comarca: source.tribunal || tribunal.toUpperCase(),
-        lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível'
+        lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível',
+        value_of_cause: source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
+        distribution_date: source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : null,
+        movements: source.movimentos?.map((m: any) => ({
+          title: m.nome || 'Movimentação Processual',
+          description_leiga: m.complemento || 'Movimentação registrada no tribunal.',
+          event_date: m.dataHora ? new Date(m.dataHora).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('pt-BR')
+        })) || []
       }
     });
 
