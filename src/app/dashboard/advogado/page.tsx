@@ -719,7 +719,10 @@ export default function LawyerDashboard() {
             status: 'done'
           }));
           const { error: evErr } = await supabase.from('timeline_events').insert(eventsToInsert);
-          if (evErr) console.error('Erro ao importar linha do tempo do CNJ:', evErr);
+          if (evErr) {
+            console.warn('Aviso ao importar linha do tempo do CNJ:', evErr);
+            alert('O processo foi cadastrado com sucesso, mas não foi possível importar a linha do tempo automática do CNJ (provavelmente devido a políticas de segurança RLS na tabela timeline_events). Você pode cadastrar andamentos manualmente no painel do processo.');
+          }
         }
         
         alert('Processo cadastrado e histórico do CNJ importado com sucesso!');
