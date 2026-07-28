@@ -149,7 +149,7 @@ export default function LawyerDashboard() {
   // Função para buscar processos com os nomes dos clientes
   const fetchLawsuits = async () => {
     try {
-      const { data: dbLawsuits } = await supabase
+      const { data: dbLawsuits, error } = await supabase
         .from('lawsuits')
         .select(`
           id,
@@ -167,28 +167,35 @@ export default function LawyerDashboard() {
           )
         `);
       
+      if (error) throw error;
+      
       if (dbLawsuits) {
-        const mapped: ProcessoAtivo[] = dbLawsuits.map((l: any) => ({
-          id: l.id,
-          process_number: l.process_number,
-          court: l.court,
-          comarca: l.comarca,
-          lawsuit_class: l.lawsuit_class,
-          status: l.status,
-          client_id: l.client_id,
-          client_name: l.clients?.users?.full_name || 'Cliente Geral'
-        }));
+        const mapped: ProcessoAtivo[] = dbLawsuits.map((l: any) => {
+          // Trata se l.clients vier como array (caso comum em relacionamentos do Supabase) ou objeto
+          const clientData = Array.isArray(l.clients) ? l.clients[0] : l.clients;
+          return {
+            id: l.id,
+            process_number: l.process_number,
+            court: l.court,
+            comarca: l.comarca,
+            lawsuit_class: l.lawsuit_class,
+            status: l.status,
+            client_id: l.client_id,
+            client_name: clientData?.users?.full_name || 'Cliente Geral'
+          };
+        });
         setLawsuitsList(mapped);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao buscar processos:', err);
+      alert('Erro ao buscar processos no Supabase: ' + err.message);
     }
   };
 
   // Função para buscar a lista de clientes cadastrados
   const fetchClients = async () => {
     try {
-      const { data: dbClients } = await supabase
+      const { data: dbClients, error } = await supabase
         .from('clients')
         .select(`
           id,
@@ -203,21 +210,27 @@ export default function LawyerDashboard() {
           )
         `);
 
+      if (error) throw error;
+
       if (dbClients) {
-        const mapped: ClienteCadastrado[] = dbClients.map((c: any) => ({
-          id: c.id,
-          client_name: c.users?.full_name || 'Cliente Sem Nome',
-          client_email: c.users?.email || 'Sem e-mail',
-          client_phone: c.users?.phone || 'Sem telefone',
-          cpf_cnpj: c.cpf_cnpj,
-          client_type: c.client_type,
-          lgpd_consent: c.users?.lgpd_consent || false,
-          created_at: c.created_at
-        }));
+        const mapped: ClienteCadastrado[] = dbClients.map((c: any) => {
+          const userData = Array.isArray(c.users) ? c.users[0] : c.users;
+          return {
+            id: c.id,
+            client_name: userData?.full_name || 'Cliente Sem Nome',
+            client_email: userData?.email || 'Sem e-mail',
+            client_phone: userData?.phone || 'Sem telefone',
+            cpf_cnpj: c.cpf_cnpj,
+            client_type: c.client_type,
+            lgpd_consent: userData?.lgpd_consent || false,
+            created_at: c.created_at
+          };
+        });
         setClientsList(mapped);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao buscar clientes:', err);
+      alert('Erro ao buscar clientes no Supabase: ' + err.message);
     }
   };
 
