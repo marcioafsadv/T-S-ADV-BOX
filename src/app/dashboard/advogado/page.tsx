@@ -539,6 +539,7 @@ export default function LawyerDashboard() {
 
     setIsSearchingCNJ(true);
     try {
+      // 1. Tenta buscar pelo Backend
       const res = await fetch('/api/lawsuits/import-by-cnj', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -547,7 +548,7 @@ export default function LawyerDashboard() {
       const resData = await res.json();
       
       if (!res.ok || resData.success === false) {
-        throw new Error(resData.message || resData.error || 'Processo não encontrado no Datajud.');
+        throw new Error(resData.message || resData.error || 'Erro no servidor.');
       }
 
       const { court, comarca, lawsuit_class } = resData.data;
@@ -556,7 +557,64 @@ export default function LawyerDashboard() {
       setProcClass(lawsuit_class);
       alert('Dados do processo importados com sucesso da base do Datajud/CNJ!');
     } catch (err: any) {
-      alert('Erro ao buscar processo no Datajud: ' + err.message);
+      // 2. Fallback de conexão direta pelo navegador do usuário (ignora bloqueio de IP da Hostinger)
+      console.warn('Backend falhou (provável bloqueio de IP da hospedagem). Iniciando busca direta do navegador...', err);
+      try {
+        const clean = cleanNumber;
+        const j = clean.slice(13, 14); // Segmento da Justiça
+        const tr = clean.slice(14, 16); // Tribunal
+        let tribunal = 'tjsp';
+        
+        if (j === '8') {
+          const ufMap: Record<string, string> = {
+            '01': 'tjac', '02': 'tjal', '03': 'tjap', '04': 'tjam', '05': 'tjba',
+            '06': 'tjce', '07': 'tjdft', '08': 'tjes', '09': 'tjgo', '10': 'tjma',
+            '11': 'tjmt', '12': 'tjms', '13': 'tjmg', '14': 'tjpa', '15': 'tjpb',
+            '16': 'tjpr', '17': 'tjpe', '18': 'tjpi', '19': 'tjrj', '20': 'tjrn',
+            '21': 'tjrs', '22': 'tjro', '23': 'tjrr', '24': 'tjsc', '25': 'tjse',
+            '26': 'tjsp', '27': 'tjto'
+          };
+          tribunal = ufMap[tr] || 'tjsp';
+        } else if (j === '5') {
+          tribunal = `trt${parseInt(tr, 10)}`;
+        } else if (j === '4') {
+          tribunal = `trf${parseInt(tr, 10)}`;
+        } else if (j === '1') {
+          tribunal = 'stf';
+        } else if (j === '3') {
+          tribunal = 'stj';
+        }
+
+        const directUrl = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
+        const directRes = await fetch(directUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'ApiKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            query: { match: { numeroProcesso: clean } },
+            size: 1
+          }),
+          signal: AbortSignal.timeout(6000)
+        });
+
+        if (!directRes.ok) throw new Error(`Conexão direta recusada pelo CNJ (Status ${directRes.status}).`);
+        const directData = await directRes.json();
+        const hit = directData.hits?.hits?.[0];
+        
+        if (!hit) {
+          throw new Error('Processo não encontrado na base do Datajud.');
+        }
+        
+        const source = hit._source || {};
+        setProcCourt(source.orgaoJulgador?.nome || 'Vara Cível');
+        setProcComarca(source.tribunal || tribunal.toUpperCase());
+        setProcClass(source.classe?.nome || 'Procedimento Comum Cível');
+        alert('Dados do processo importados com sucesso via conexão direta (CORS Fallback)!');
+      } catch (directErr: any) {
+        alert('Erro ao buscar processo no Datajud: ' + directErr.message);
+      }
     } finally {
       setIsSearchingCNJ(false);
     }
