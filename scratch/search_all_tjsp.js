@@ -3,18 +3,9 @@ const url = 'https://api-publica.datajud.cnj.jus.br/api_publica_tjsp/_search';
 
 const queryPayload = {
   query: {
-    bool: {
-      must: [
-        {
-          query_string: {
-            query: "385787",
-            default_field: "advogados.numeroOab"
-          }
-        }
-      ]
-    }
+    match_all: {}
   },
-  size: 5
+  size: 2
 };
 
 async function run() {
@@ -29,7 +20,11 @@ async function run() {
     });
     console.log('status:', res.status);
     const data = await res.json();
-    console.log('data:', JSON.stringify(data, null, 2));
+    console.log('Hits total:', data.hits?.total?.value);
+    if (data.hits?.hits?.length > 0) {
+      console.log('Exemplo de documento completo do TJSP no Datajud:');
+      console.log(JSON.stringify(data.hits.hits[0]._source, null, 2));
+    }
   } catch (err) {
     console.error('Error:', err);
   }
