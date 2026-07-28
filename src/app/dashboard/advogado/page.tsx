@@ -135,7 +135,7 @@ export default function LawyerDashboard() {
   const [linkedProcessId, setLinkedProcessId] = useState('');
   const [isValidating, setIsValidating] = useState(false);
 
-  // Modal de Importação via OAB (Jusbrasil)
+  // Modal de Importação via OAB (Escavador)
   const [showImportOabModal, setShowImportOabModal] = useState(false);
   const [oabNumber, setOabNumber] = useState('');
   const [oabUf, setOabUf] = useState('SP');
@@ -591,7 +591,7 @@ export default function LawyerDashboard() {
 
       setFoundProcessos(data.processos || []);
       if (data.isMock) {
-        alert('Busca efetuada com sucesso! Exibindo processos de simulação do Jusbrasil.');
+        alert('Busca efetuada com sucesso! Exibindo processos de simulação do Escavador.');
       }
     } catch (err: any) {
       alert('Erro ao buscar OAB: ' + err.message);
@@ -1948,7 +1948,7 @@ export default function LawyerDashboard() {
         </div>
       )}
 
-      {/* Modal: Importação via OAB (Jusbrasil) */}
+      {/* Modal: Importação via OAB (Escavador) */}
       {showImportOabModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 relative flex flex-col max-h-[85vh]">
@@ -1966,7 +1966,7 @@ export default function LawyerDashboard() {
             </button>
 
             <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white mb-2">Importar Processos via OAB</h3>
-            <p className="text-xs text-slate-550 dark:text-slate-400 mb-4">Busque processos cadastrados nos tribunais através do número da OAB do advogado (via Jusbrasil API).</p>
+            <p className="text-xs text-slate-550 dark:text-slate-400 mb-4">Busque processos cadastrados nos tribunais através do número da OAB do advogado (via Escavador API).</p>
 
             {/* Busca form */}
             <form onSubmit={handleSearchOab} className="flex gap-3 mb-4 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-lg border border-slate-200/50 dark:border-slate-800/80">
@@ -2012,7 +2012,7 @@ export default function LawyerDashboard() {
             {/* Resultado da busca */}
             <div className="flex-grow overflow-y-auto space-y-3 min-h-[200px] max-h-[40vh] pr-1">
               {isSearchingOab ? (
-                <p className="text-center text-xs text-slate-500 py-12">Consultando a API do Jusbrasil...</p>
+                <p className="text-center text-xs text-slate-500 py-12">Consultando a API do Escavador...</p>
               ) : foundProcessos.length === 0 ? (
                 <p className="text-center text-xs text-slate-500 py-12">Nenhum processo listado. Insira a OAB acima para buscar.</p>
               ) : (
