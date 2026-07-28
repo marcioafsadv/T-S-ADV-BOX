@@ -55,37 +55,37 @@ export async function POST(request: Request) {
 
     // Dispara as consultas a todos os tribunais de interesse em paralelo
     const searchPromises = tribunaisAlvos.map(async (tribunal) => {
-      try {
-        const url = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Authorization': apiKey.startsWith('ApiKey ') ? apiKey : `ApiKey ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(queryPayload),
-          signal: AbortSignal.timeout(6000) // Timeout individual de 6s para evitar travamento se um tribunal cair
-        });
+      const url = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': apiKey.startsWith('ApiKey ') ? apiKey : `ApiKey ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(queryPayload),
+        signal: AbortSignal.timeout(6000) // Timeout de 6s
+      });
 
-        if (!response.ok) return [];
-
-        const searchData = await response.json();
-        const hits = searchData.hits?.hits || [];
-
-        return hits.map((hit: any) => {
-          const source = hit._source || {};
-          return {
-            process_number: formatCNJ(source.numeroProcesso || ''),
-            court: source.orgaoJulgador?.nome || 'Vara Federal/Estadual/Trabalho',
-            comarca: source.tribunal || tribunal.toUpperCase(),
-            lawsuit_class: source.classe?.nome || 'Procedimento Judiciário',
-            status: 'Ativo'
-          };
-        });
-      } catch (err) {
-        console.warn(`Erro ao consultar tribunal ${tribunal.toUpperCase()}:`, err);
-        return [];
+      // Se a chave pública for recusada (401), lançamos um erro explícito para acionar o Fallback de simulação
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(`Não autorizado no Datajud (${response.status}). Possível rotação de APIKey pública do CNJ.`);
       }
+
+      if (!response.ok) return [];
+
+      const searchData = await response.json();
+      const hits = searchData.hits?.hits || [];
+
+      return hits.map((hit: any) => {
+        const source = hit._source || {};
+        return {
+          process_number: formatCNJ(source.numeroProcesso || ''),
+          court: source.orgaoJulgador?.nome || 'Vara Federal/Estadual/Trabalho',
+          comarca: source.tribunal || tribunal.toUpperCase(),
+          lawsuit_class: source.classe?.nome || 'Procedimento Judiciário',
+          status: 'Ativo'
+        };
+      });
     });
 
     // Aguarda a resolução de todas as chamadas em paralelo
@@ -96,7 +96,6 @@ export async function POST(request: Request) {
     
     results.flat().forEach(proc => {
       if (proc.process_number) {
-        // Evita que o mesmo processo seja adicionado duas vezes caso apareça em instâncias diferentes na mesma busca
         todosProcessosMap.set(proc.process_number, proc);
       }
     });
@@ -110,9 +109,9 @@ export async function POST(request: Request) {
     });
 
   } catch (err: any) {
-    console.warn(`Pesquisa paralela do Datajud falhou: ${err.message}`);
+    console.warn(`Pesquisa paralela do Datajud falhou, ativando fallback de simulação: ${err.message}`);
     
-    // Fallback de simulação
+    // Fallback de simulação com dados realistas
     const mockProcessos = [
       {
         process_number: `00${Math.floor(10000 + Math.random() * 90000)}-${Math.floor(10 + Math.random() * 89)}.2024.8.26.0100`,
@@ -141,7 +140,7 @@ export async function POST(request: Request) {
       success: true, 
       isMock: true, 
       processos: mockProcessos,
-      message: `Buscando em modo simulação (Datajud indisponível ou em timeout: ${err.message}).`
+      message: `Buscando em modo simulação (Datajud indisponível ou APIKey expirada: ${err.message}).`
     });
   }
 }
