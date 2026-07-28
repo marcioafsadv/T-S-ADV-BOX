@@ -681,7 +681,11 @@ export default function LawyerDashboard() {
         setProcComarca(source.tribunal || tribunal.toUpperCase());
         setProcClass(source.classe?.nome || 'Procedimento Comum Cível');
         setProcValueOfCause(source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '');
-        setProcDistributionDate(source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : '');
+        setProcDistributionDate(source.dataHoraDistribuicao 
+          ? source.dataHoraDistribuicao.slice(0, 10) 
+          : (source.dataAjuizamento && source.dataAjuizamento.length >= 8)
+            ? `${source.dataAjuizamento.slice(0, 4)}-${source.dataAjuizamento.slice(4, 6)}-${source.dataAjuizamento.slice(6, 8)}`
+            : '');
         setProcActiveParties(source.partes
           ?.filter((p: any) => {
             const polo = String(p.polo || '').toUpperCase();

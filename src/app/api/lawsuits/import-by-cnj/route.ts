@@ -93,7 +93,11 @@ export async function POST(request: Request) {
         comarca: source.tribunal || tribunal.toUpperCase(),
         lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível',
         value_of_cause: source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
-        distribution_date: source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : null,
+        distribution_date: source.dataHoraDistribuicao 
+          ? source.dataHoraDistribuicao.slice(0, 10) 
+          : (source.dataAjuizamento && source.dataAjuizamento.length >= 8)
+            ? `${source.dataAjuizamento.slice(0, 4)}-${source.dataAjuizamento.slice(4, 6)}-${source.dataAjuizamento.slice(6, 8)}`
+            : null,
         active_parties: source.partes
           ?.filter((p: any) => {
             const polo = String(p.polo || '').toUpperCase();
