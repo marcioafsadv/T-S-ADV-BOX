@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(queryPayload),
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(25000) // Aumentado para 25 segundos para evitar timeouts em APIs do governo lentas
     });
 
     if (!response.ok) {

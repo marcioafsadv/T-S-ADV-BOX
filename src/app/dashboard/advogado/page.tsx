@@ -599,7 +599,10 @@ export default function LawyerDashboard() {
         }
 
         const directUrl = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
-        const directRes = await fetch(directUrl, {
+        // Usamos o proxy de CORS gratuito allorigins.win para contornar a política de CORS do navegador ao acessar o CNJ diretamente
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+        
+        const directRes = await fetch(proxyUrl, {
           method: 'POST',
           headers: {
             'Authorization': 'ApiKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
@@ -609,10 +612,10 @@ export default function LawyerDashboard() {
             query: { match: { numeroProcesso: clean } },
             size: 1
           }),
-          signal: AbortSignal.timeout(6000)
+          signal: AbortSignal.timeout(20000) // Aumentado para 20 segundos
         });
 
-        if (!directRes.ok) throw new Error(`Conexão direta recusada pelo CNJ (Status ${directRes.status}).`);
+        if (!directRes.ok) throw new Error(`Conexão direta recusada pelo CNJ via Proxy (Status ${directRes.status}).`);
         const directData = await directRes.json();
         const hit = directData.hits?.hits?.[0];
         
