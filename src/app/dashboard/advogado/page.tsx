@@ -24,7 +24,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Pencil,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import Logo from '@/components/Logo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
@@ -165,6 +166,7 @@ export default function LawyerDashboard() {
   const [drawerTasks, setDrawerTasks] = useState<any[]>([]);
   const [drawerEvents, setDrawerEvents] = useState<any[]>([]);
   const [isLoadingDrawerData, setIsLoadingDrawerData] = useState(false);
+  const [isSyncingLawsuit, setIsSyncingLawsuit] = useState(false);
   const [newDrawerDeadlineDesc, setNewDrawerDeadlineDesc] = useState('');
   const [newDrawerDeadlineDate, setNewDrawerDeadlineDate] = useState('');
   const [newDrawerDeadlinePriority, setNewDrawerDeadlinePriority] = useState<'high' | 'medium' | 'low'>('medium');
@@ -895,6 +897,194 @@ export default function LawyerDashboard() {
       alert('Erro ao carregar dados do processo: ' + err.message);
     } finally {
       setIsLoadingDrawerData(false);
+    }
+  };
+
+  const handleSyncLawsuit = async () => {
+    if (!selectedLawsuitForDetail) return;
+    setIsSyncingLawsuit(true);
+    try {
+      const cleanNumber = selectedLawsuitForDetail.process_number.replace(/\D/g, '');
+      if (cleanNumber.length !== 20) {
+        throw new Error('Número de processo CNJ inválido para sincronização.');
+      }
+
+      // 1. Busca os dados mais recentes do CNJ via nossa API
+      let syncedData: any = null;
+      try {
+        const res = await fetch('/api/lawsuits/import-by-cnj', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ processNumber: selectedLawsuitForDetail.process_number })
+        });
+        const resData = await res.json();
+        if (res.ok && resData.success !== false) {
+          syncedData = resData.data;
+        } else {
+          throw new Error(resData.message || 'Erro no servidor de importação.');
+        }
+      } catch (backendErr) {
+        // Fallback de conexão direta pelo navegador do usuário
+        console.warn('Backend de sincronização falhou, iniciando busca direta via CORS Fallback...', backendErr);
+        const clean = cleanNumber;
+        const j = clean.slice(13, 14);
+        const tr = clean.slice(14, 16);
+        let tribunal = 'tjsp';
+        if (j === '8') {
+          const ufMap: Record<string, string> = {
+            '01': 'tjac', '02': 'tjal', '03': 'tjap', '04': 'tjam', '05': 'tjba',
+            '06': 'tjce', '07': 'tjdft', '08': 'tjes', '09': 'tjgo', '10': 'tjma',
+            '11': 'tjmt', '12': 'tjms', '13': 'tjmg', '14': 'tjpa', '15': 'tjpb',
+            '16': 'tjpr', '17': 'tjpe', '18': 'tjpi', '19': 'tjrj', '20': 'tjrn',
+            '21': 'tjrs', '22': 'tjro', '23': 'tjrr', '24': 'tjsc', '25': 'tjse',
+            '26': 'tjsp', '27': 'tjto'
+          };
+          tribunal = ufMap[tr] || 'tjsp';
+        } else if (j === '5') {
+          tribunal = `trt${parseInt(tr, 10)}`;
+        } else if (j === '4') {
+          tribunal = `trf${parseInt(tr, 10)}`;
+        } else if (j === '1') {
+          tribunal = 'stf';
+        } else if (j === '3') {
+          tribunal = 'stj';
+        }
+
+        const directUrl = `https://api-publica.datajud.cnj.jus.br/api_publica_${tribunal}/_search`;
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+        
+        const directRes = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'ApiKey cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            query: { match: { numeroProcesso: clean } },
+            size: 1
+          }),
+          signal: AbortSignal.timeout(20000)
+        });
+
+        if (!directRes.ok) throw new Error(`CNJ indisponível no momento (Status ${directRes.status}).`);
+        const directData = await directRes.json();
+        const hit = directData.hits?.hits?.[0];
+        if (!hit) {
+          throw new Error('Processo não encontrado no Datajud.');
+        }
+        
+        const source = hit._source || {};
+        syncedData = {
+          court: source.orgaoJulgador?.nome || 'Vara Cível',
+          comarca: source.tribunal || tribunal.toUpperCase(),
+          lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível',
+          value_of_cause: source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
+          distribution_date: source.dataHoraDistribuicao 
+            ? source.dataHoraDistribuicao.slice(0, 10) 
+            : (source.dataAjuizamento && source.dataAjuizamento.length >= 8)
+              ? `${source.dataAjuizamento.slice(0, 4)}-${source.dataAjuizamento.slice(4, 6)}-${source.dataAjuizamento.slice(6, 8)}`
+              : null,
+          active_parties: source.partes
+            ?.filter((p: any) => {
+              const polo = String(p.polo || '').toUpperCase();
+              const tipo = String(p.tipoParticipacao || '').toUpperCase();
+              return polo === 'ATIVO' || polo === 'AT' || tipo.includes('AUTOR') || tipo.includes('RECLAMANTE') || tipo.includes('ATIVO') || tipo.includes('IMPETRANTE');
+            })
+            .map((p: any) => p.nome)
+            .join(', ') || null,
+          passive_parties: source.partes
+            ?.filter((p: any) => {
+              const polo = String(p.polo || '').toUpperCase();
+              const tipo = String(p.tipoParticipacao || '').toUpperCase();
+              return polo === 'PASSIVO' || polo === 'PA' || tipo.includes('REU') || tipo.includes('RECLAMADO') || tipo.includes('PASSIVO') || tipo.includes('IMPETRADO');
+            })
+            .map((p: any) => p.nome)
+            .join(', ') || null,
+          movements: source.movimentos?.map((m: any) => ({
+            title: m.nome || 'Movimentação Processual',
+            description_leiga: m.complemento || 'Movimentação registrada no tribunal.',
+            event_date: m.dataHora ? new Date(m.dataHora).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('pt-BR')
+          })) || []
+        };
+      }
+
+      if (!syncedData) {
+        throw new Error('Não foi possível obter dados do CNJ para sincronizar.');
+      }
+
+      // 2. Atualiza a capa do processo no Supabase
+      const dataUpdated = {
+        court: syncedData.court,
+        comarca: syncedData.comarca,
+        lawsuit_class: syncedData.lawsuit_class,
+        value_of_cause: syncedData.value_of_cause || selectedLawsuitForDetail.value_of_cause || null,
+        distribution_date: syncedData.distribution_date || selectedLawsuitForDetail.distribution_date || null,
+        active_parties: syncedData.active_parties || selectedLawsuitForDetail.active_parties || null,
+        passive_parties: syncedData.passive_parties || selectedLawsuitForDetail.passive_parties || null
+      };
+
+      if (isSupabaseConfigured) {
+        const { error: updateErr } = await supabase
+          .from('lawsuits')
+          .update(dataUpdated)
+          .eq('id', selectedLawsuitForDetail.id);
+        if (updateErr) throw updateErr;
+
+        // 3. Busca andamentos existentes para evitar duplicidade
+        const { data: existingEvents, error: fetchEvErr } = await supabase
+          .from('timeline_events')
+          .select('title, event_date')
+          .eq('lawsuit_id', selectedLawsuitForDetail.id);
+        if (fetchEvErr) throw fetchEvErr;
+
+        const existingMap = new Set(
+          (existingEvents || []).map((ev: any) => `${ev.title.trim().toLowerCase()}_${ev.event_date.trim().toLowerCase()}`)
+        );
+
+        // Filtra novos andamentos que não existem na nossa base
+        const newEventsToInsert = (syncedData.movements || [])
+          .filter((m: any) => {
+            const key = `${m.title.trim().toLowerCase()}_${m.event_date.trim().toLowerCase()}`;
+            return !existingMap.has(key);
+          })
+          .map((m: any) => ({
+            lawsuit_id: selectedLawsuitForDetail.id,
+            title: m.title,
+            description_leiga: m.description_leiga,
+            event_date: m.event_date,
+            status: 'done'
+          }));
+
+        let insertedCount = 0;
+        if (newEventsToInsert.length > 0) {
+          const { error: insertEvErr } = await supabase
+            .from('timeline_events')
+            .insert(newEventsToInsert);
+          if (insertEvErr) {
+            console.warn('Erro ao inserir novas movimentações:', insertEvErr);
+          } else {
+            insertedCount = newEventsToInsert.length;
+          }
+        }
+
+        alert(`Sincronização concluída com sucesso!\n\n• Capa do processo atualizada.\n• ${insertedCount} novas movimentações inseridas na linha do tempo.`);
+        
+        // Recarrega os dados do drawer e a lista principal
+        const updatedProcess: ProcessoAtivo = {
+          ...selectedLawsuitForDetail,
+          ...dataUpdated
+        };
+        setSelectedLawsuitForDetail(updatedProcess);
+        fetchDrawerData(selectedLawsuitForDetail.id);
+        fetchLawsuits();
+      } else {
+        alert('Sincronização simulada em Modo Demo (sem gravação real no Supabase).');
+      }
+    } catch (err: any) {
+      console.error('Erro na sincronização:', err);
+      alert('Não foi possível sincronizar o processo com o tribunal: ' + err.message);
+    } finally {
+      setIsSyncingLawsuit(false);
     }
   };
 
@@ -2605,12 +2795,23 @@ export default function LawyerDashboard() {
                 <span className="text-[10px] uppercase font-bold text-[#b8975a] tracking-wider">Detalhamento da Causa</span>
                 <h4 className="text-base font-mono font-bold text-slate-900 dark:text-white mt-0.5">{selectedLawsuitForDetail.process_number}</h4>
               </div>
-              <button 
-                onClick={() => setShowDetailDrawer(false)}
-                className="p-1.5 rounded-lg bg-slate-200/50 hover:bg-slate-300/60 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncLawsuit}
+                  disabled={isSyncingLawsuit}
+                  title="Sincronizar com o Tribunal"
+                  className="px-3 py-1.5 rounded-lg bg-[#b8975a]/10 hover:bg-[#b8975a]/20 text-[#b8975a] text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isSyncingLawsuit ? 'animate-spin' : ''}`} />
+                  {isSyncingLawsuit ? 'Sincronizando...' : 'Sincronizar'}
+                </button>
+                <button 
+                  onClick={() => setShowDetailDrawer(false)}
+                  className="p-1.5 rounded-lg bg-slate-200/50 hover:bg-slate-300/60 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {/* Menu de Abas (Tabs) do Drawer */}
