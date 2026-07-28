@@ -17,26 +17,36 @@ export async function GET() {
       }
     });
 
-    // Testando a exata query do frontend com o join 'users'
-    const { data: testClients, error: testErr } = await supabase
-      .from('clients')
+    // 1. Consulta simples em lawsuits
+    const { data: rawLawsuits, error: rawErr } = await supabase
+      .from('lawsuits')
+      .select('*');
+
+    // 2. Consulta com os joins idêntica à do frontend
+    const { data: joinLawsuits, error: joinErr } = await supabase
+      .from('lawsuits')
       .select(`
         id,
-        cpf_cnpj,
-        client_type,
-        created_at,
-        users (
-          full_name,
-          email,
-          phone,
-          lgpd_consent
+        process_number,
+        court,
+        comarca,
+        lawsuit_class,
+        status,
+        client_id,
+        clients (
+          users (
+            full_name
+          )
         )
       `);
 
     return NextResponse.json({
       success: true,
-      error: testErr?.message || testErr,
-      testClients
+      rawErr: rawErr?.message || rawErr,
+      joinErr: joinErr?.message || joinErr,
+      rawLawsuitsCount: rawLawsuits?.length,
+      rawLawsuits,
+      joinLawsuits
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message });
