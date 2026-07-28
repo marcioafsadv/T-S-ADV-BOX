@@ -94,6 +94,22 @@ export async function POST(request: Request) {
         lawsuit_class: source.classe?.nome || 'Procedimento Comum Cível',
         value_of_cause: source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
         distribution_date: source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : null,
+        active_parties: source.partes
+          ?.filter((p: any) => {
+            const polo = String(p.polo || '').toUpperCase();
+            const tipo = String(p.tipoParticipacao || '').toUpperCase();
+            return polo === 'ATIVO' || polo === 'AT' || tipo.includes('AUTOR') || tipo.includes('RECLAMANTE') || tipo.includes('ATIVO') || tipo.includes('IMPETRANTE');
+          })
+          .map((p: any) => p.nome)
+          .join(', ') || null,
+        passive_parties: source.partes
+          ?.filter((p: any) => {
+            const polo = String(p.polo || '').toUpperCase();
+            const tipo = String(p.tipoParticipacao || '').toUpperCase();
+            return polo === 'PASSIVO' || polo === 'PA' || tipo.includes('REU') || tipo.includes('RECLAMADO') || tipo.includes('PASSIVO') || tipo.includes('IMPETRADO');
+          })
+          .map((p: any) => p.nome)
+          .join(', ') || null,
         movements: source.movimentos?.map((m: any) => ({
           title: m.nome || 'Movimentação Processual',
           description_leiga: m.complemento || 'Movimentação registrada no tribunal.',

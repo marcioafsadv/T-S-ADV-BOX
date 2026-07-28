@@ -63,6 +63,8 @@ interface ProcessoAtivo {
   client_name?: string;
   value_of_cause?: string | null;
   distribution_date?: string | null;
+  active_parties?: string | null;
+  passive_parties?: string | null;
 }
 
 interface ClienteCadastrado {
@@ -152,6 +154,8 @@ export default function LawyerDashboard() {
   const [procValueOfCause, setProcValueOfCause] = useState<string>('');
   const [procDistributionDate, setProcDistributionDate] = useState<string>('');
   const [procMovements, setProcMovements] = useState<any[]>([]);
+  const [procActiveParties, setProcActiveParties] = useState<string>('');
+  const [procPassiveParties, setProcPassiveParties] = useState<string>('');
 
   // Estados do Drawer Lateral de Detalhes do Processo
   const [selectedLawsuitForDetail, setSelectedLawsuitForDetail] = useState<ProcessoAtivo | null>(null);
@@ -179,6 +183,8 @@ export default function LawyerDashboard() {
   const [editClientId, setEditClientId] = useState('');
   const [editValueOfCause, setEditValueOfCause] = useState('');
   const [editDistributionDate, setEditDistributionDate] = useState('');
+  const [editActiveParties, setEditActiveParties] = useState('');
+  const [editPassiveParties, setEditPassiveParties] = useState('');
 
   // Função para buscar processos com os nomes dos clientes
   const fetchLawsuits = async () => {
@@ -195,6 +201,8 @@ export default function LawyerDashboard() {
           client_id,
           value_of_cause,
           distribution_date,
+          active_parties,
+          passive_parties,
           clients (
             id,
             users (
@@ -219,7 +227,9 @@ export default function LawyerDashboard() {
             client_id: l.client_id,
             client_name: clientData?.users?.full_name || 'Cliente Geral',
             value_of_cause: l.value_of_cause,
-            distribution_date: l.distribution_date
+            distribution_date: l.distribution_date,
+            active_parties: l.active_parties,
+            passive_parties: l.passive_parties
           };
         });
         setLawsuitsList(mapped);
@@ -602,12 +612,14 @@ export default function LawyerDashboard() {
         throw new Error(resData.message || resData.error || 'Erro no servidor.');
       }
 
-      const { court, comarca, lawsuit_class, value_of_cause, distribution_date, movements } = resData.data;
+      const { court, comarca, lawsuit_class, value_of_cause, distribution_date, active_parties, passive_parties, movements } = resData.data;
       setProcCourt(court);
       setProcComarca(comarca);
       setProcClass(lawsuit_class);
       setProcValueOfCause(value_of_cause || '');
       setProcDistributionDate(distribution_date || '');
+      setProcActiveParties(active_parties || '');
+      setProcPassiveParties(passive_parties || '');
       setProcMovements(movements || []);
       alert('Dados do processo importados com sucesso da base do Datajud/CNJ!');
     } catch (err: any) {
@@ -670,6 +682,22 @@ export default function LawyerDashboard() {
         setProcClass(source.classe?.nome || 'Procedimento Comum Cível');
         setProcValueOfCause(source.valorCausa ? `R$ ${Number(source.valorCausa).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '');
         setProcDistributionDate(source.dataHoraDistribuicao ? source.dataHoraDistribuicao.slice(0, 10) : '');
+        setProcActiveParties(source.partes
+          ?.filter((p: any) => {
+            const polo = String(p.polo || '').toUpperCase();
+            const tipo = String(p.tipoParticipacao || '').toUpperCase();
+            return polo === 'ATIVO' || polo === 'AT' || tipo.includes('AUTOR') || tipo.includes('RECLAMANTE') || tipo.includes('ATIVO') || tipo.includes('IMPETRANTE');
+          })
+          .map((p: any) => p.nome)
+          .join(', ') || '');
+        setProcPassiveParties(source.partes
+          ?.filter((p: any) => {
+            const polo = String(p.polo || '').toUpperCase();
+            const tipo = String(p.tipoParticipacao || '').toUpperCase();
+            return polo === 'PASSIVO' || polo === 'PA' || tipo.includes('REU') || tipo.includes('RECLAMADO') || tipo.includes('PASSIVO') || tipo.includes('IMPETRADO');
+          })
+          .map((p: any) => p.nome)
+          .join(', ') || '');
         setProcMovements(source.movimentos?.map((m: any) => ({
           title: m.nome || 'Movimentação Processual',
           description_leiga: m.complemento || 'Movimentação registrada no tribunal.',
@@ -697,7 +725,9 @@ export default function LawyerDashboard() {
       status: procStatus,
       client_id: procClientId,
       value_of_cause: procValueOfCause || null,
-      distribution_date: procDistributionDate || null
+      distribution_date: procDistributionDate || null,
+      active_parties: procActiveParties || null,
+      passive_parties: procPassiveParties || null
     };
 
     if (isSupabaseConfigured) {
@@ -749,6 +779,8 @@ export default function LawyerDashboard() {
     setProcValueOfCause('');
     setProcDistributionDate('');
     setProcMovements([]);
+    setProcActiveParties('');
+    setProcPassiveParties('');
     setShowAddProcessModal(false);
   };
 
@@ -785,7 +817,9 @@ export default function LawyerDashboard() {
       status: editStatus,
       client_id: editClientId,
       value_of_cause: editValueOfCause || null,
-      distribution_date: editDistributionDate || null
+      distribution_date: editDistributionDate || null,
+      active_parties: editActiveParties || null,
+      passive_parties: editPassiveParties || null
     };
 
     try {
@@ -1718,6 +1752,8 @@ export default function LawyerDashboard() {
                                   setEditClientId(lawsuit.client_id);
                                   setEditValueOfCause(lawsuit.value_of_cause || '');
                                   setEditDistributionDate(lawsuit.distribution_date || '');
+                                  setEditActiveParties(lawsuit.active_parties || '');
+                                  setEditPassiveParties(lawsuit.passive_parties || '');
                                   setShowEditProcessModal(true);
                                 }}
                                 className="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-655 dark:text-slate-350 cursor-pointer"
@@ -2595,13 +2631,13 @@ export default function LawyerDashboard() {
                           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-850 pb-2">
                             <div>
                               <span className="block text-[10px] text-slate-400 uppercase font-semibold">Polo Ativo (Autor)</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-100">{selectedLawsuitForDetail.client_name}</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-100">{selectedLawsuitForDetail.active_parties || selectedLawsuitForDetail.client_name}</span>
                             </div>
                             <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-bold">Cliente</span>
                           </div>
                           <div>
                             <span className="block text-[10px] text-slate-400 uppercase font-semibold">Polo Passivo (Réu)</span>
-                            <span className="font-bold text-slate-550 dark:text-slate-400">Informação não declarada (Disponível nos Autos)</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{selectedLawsuitForDetail.passive_parties || 'Informação não declarada (Disponível nos Autos)'}</span>
                           </div>
                         </div>
                       </div>
@@ -2888,6 +2924,27 @@ export default function LawyerDashboard() {
                     value={editDistributionDate}
                     onChange={(e) => setEditDistributionDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">POLO ATIVO (AUTOR)</label>
+                  <input 
+                    type="text" 
+                    value={editActiveParties}
+                    onChange={(e) => setEditActiveParties(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-500 dark:text-slate-400 font-bold mb-1">POLO PASSIVO (RÉU)</label>
+                  <input 
+                    type="text" 
+                    value={editPassiveParties}
+                    onChange={(e) => setEditPassiveParties(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
