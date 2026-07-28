@@ -25,11 +25,14 @@ export async function POST(request: Request) {
       }
     });
 
+    // Se nenhuma senha for fornecida, gera uma senha aleatória segura automaticamente
+    const securePassword = password || (Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
+
     // Cria o usuário na autenticação marcando email_confirm como true.
     // Isso evita o envio de e-mails de confirmação e ativa a conta do cliente na hora!
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
-      password,
+      password: securePassword,
       email_confirm: true, // ESSA FLAG PULA A CONFIRMAÇÃO DE E-MAIL E PREVINE O ENVIO
       user_metadata: {
         full_name: name,

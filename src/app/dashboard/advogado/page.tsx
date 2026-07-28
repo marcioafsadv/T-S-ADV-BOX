@@ -696,14 +696,14 @@ export default function LawyerDashboard() {
   // 4. Ações de Cadastro de Clientes
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientName || !newClientEmail || !newClientCpfCnpj || !newClientPassword) return;
+    if (!newClientName || !newClientEmail || !newClientCpfCnpj) return;
 
     setIsSavingClient(true);
 
     if (isSupabaseConfigured) {
       try {
         // Envia requisição para a nossa API interna que usa o cliente administrativo do Supabase
-        // para cadastrar o cliente com e-mail já confirmado, impedindo o envio de e-mails
+        // para cadastrar o cliente com e-mail já confirmado, sem exigir digitação de senha
         const res = await fetch('/api/admin/create-client', {
           method: 'POST',
           headers: {
@@ -714,8 +714,7 @@ export default function LawyerDashboard() {
             email: newClientEmail,
             phone: newClientPhone,
             cpfCnpj: newClientCpfCnpj,
-            clientType: newClientType,
-            password: newClientPassword
+            clientType: newClientType
           })
         });
 
@@ -1827,18 +1826,6 @@ export default function LawyerDashboard() {
                     className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">SENHA DE ACESSO</label>
-                <input 
-                  type="password" 
-                  required
-                  placeholder="Mínimo 6 caracteres"
-                  value={newClientPassword}
-                  onChange={(e) => setNewClientPassword(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-850 text-sm outline-none text-slate-900 dark:text-white"
-                />
               </div>
 
               <button
