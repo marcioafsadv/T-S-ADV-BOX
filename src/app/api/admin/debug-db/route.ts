@@ -7,7 +7,7 @@ export async function GET() {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseServiceKey) {
-      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY não configurada no servidor.' });
+      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY não configurada.' });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
@@ -17,26 +17,26 @@ export async function GET() {
       }
     });
 
-    // Tenta uma inserção manual na tabela clients para ver qual erro de restrição ou schema acontece
-    const testInsert = await supabase.from('clients').insert({
-      user_id: 'ed3bfbf5-d603-45c0-a954-a723e26f9159', // ID da Kassiane
-      cpf_cnpj: '474.994.178-67',
-      client_type: 'individual'
-    }).select();
-
-    const { data: users } = await supabase.from('users').select('*');
-    const { data: clients } = await supabase.from('clients').select('*');
+    // Testando a exata query do frontend com o join 'users'
+    const { data: testClients, error: testErr } = await supabase
+      .from('clients')
+      .select(`
+        id,
+        cpf_cnpj,
+        client_type,
+        created_at,
+        users (
+          full_name,
+          email,
+          phone,
+          lgpd_consent
+        )
+      `);
 
     return NextResponse.json({
       success: true,
-      testInsertResult: {
-        status: testInsert.status,
-        statusText: testInsert.statusText,
-        error: testInsert.error?.message || testInsert.error,
-        data: testInsert.data
-      },
-      users,
-      clients
+      error: testErr?.message || testErr,
+      testClients
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message });
